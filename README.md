@@ -63,7 +63,7 @@ npm run smc -- --in ./data.csv --out ./events.jsonl --timecol time
 
 ### 2) Generate viewer events (no contamination)
 ```bash
-npm run build-viewer -- --events ./events.jsonl --csv ./data.csv --out ./event_viewer.jsonl --timecol time
+npm run build-viewer -- --events ./events.jsonl --csv ./bars.csv --out ./event_viewer.jsonl --timecol time
 ```
 
 ### 3) Run viewer

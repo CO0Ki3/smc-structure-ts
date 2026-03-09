@@ -1,11 +1,11 @@
-import { createChart, CrosshairMode, LineStyle, type UTCTimestamp, CandlestickSeries, HistogramSeries, createSeriesMarkers } from 'lightweight-charts';
+import { createChart, CrosshairMode, LineStyle, type UTCTimestamp, CandlestickSeries, HistogramSeries, LineSeries, createSeriesMarkers } from 'lightweight-charts';
 
 type Candle = { time: UTCTimestamp; open: number; high: number; low: number; close: number; volume?: number };
 
 type ViewerEvent =
   | { type: 'MARKER'; time: UTCTimestamp; position: 'aboveBar'|'belowBar'; text: string; color: string; shape?: 'arrowUp'|'arrowDown'|'circle'|'square' }
-  | { type: 'HLINE'; time: UTCTimestamp; price: number; text: string; color: string; style?: 'dashed'|'solid'|'dotted' }
-  | { type: 'RANGE_HINT'; time: UTCTimestamp; high: number; low: number; text: string; color: string };
+  | { type: 'HSEG'; t0: UTCTimestamp; t1: UTCTimestamp; price: number; text: string; color: string; style?: 'dashed'|'solid'|'dotted' }
+  | { type: 'RANGE_SEG'; t0: UTCTimestamp; t1: UTCTimestamp; high: number; low: number; text: string; color: string; style?: 'dotted'|'solid' };
 
 type TradeTraceItem =
   | { kind: 'BIAS'; ts: number; tag: 'BOS'|'CHOCH'; dir: 1|-1; level: number }
@@ -38,11 +38,17 @@ chart.applyOptions({ width: chartEl.clientWidth, height: chartEl.clientHeight })
 const candlesSeries = chart.addSeries(CandlestickSeries, {});
 const markersApi = createSeriesMarkers(candlesSeries);
 const volSeries = chart.addSeries(HistogramSeries, { priceFormat: { type: 'volume' }, priceScaleId: '' });
+
+// segment series (finite lines)
+let segSeries: any[] = [];
+function clearSegments(){ for (const s of segSeries){ try{ chart.removeSeries(s);}catch{} } segSeries = []; }
+
 volSeries.priceScale().applyOptions({ scaleMargins: { top: 0.8, bottom: 0 } });
 
 let candles: Candle[] = [];
 let events: ViewerEvent[] = [];
 let tradeEvents: ViewerEvent[] = [];
+let rlTradeEvents: ViewerEvent[] = [];
 
 function readFile(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -90,7 +96,6 @@ function parseJsonl(text: string): ViewerEvent[] {
   return out;
 }
 
-
 function parseTradeEventsJsonl(text: string): ViewerEvent[] {
   const lines = text.split(/\r?\n/).filter(Boolean);
   const out: ViewerEvent[] = [];
@@ -101,34 +106,106 @@ function parseTradeEventsJsonl(text: string): ViewerEvent[] {
 
     for (const item of trace.chain) {
       const time = Math.floor(item.ts / 1000) as UTCTimestamp;
-      // distinct palette for trade reasoning overlay
-      const baseColor = trace.side === 'LONG' ? '#16a34a' : '#dc2626'; // green/red
+      const baseColor = trace.side === 'LONG' ? '#16a34a' : '#dc2626';
       if (item.kind === 'SWEEP') {
         out.push({ type:'MARKER', time, position: trace.side==='LONG' ? 'belowBar':'aboveBar', shape:'circle', color: baseColor, text: `${trace.tradeId}:SWEEP` });
-        out.push({ type:'HLINE', time, price: item.swingLevel, color: baseColor, style:'dotted', text: `${trace.tradeId}:swingLvl` });
+        out.push({ type:'HSEG', t0: time, t1: time, price: item.swingLevel, color: baseColor, style:'dotted', text: `${trace.tradeId}:swingLvl` });
         continue;
       }
       if (item.kind === 'CONFIRM') {
         out.push({ type:'MARKER', time, position: trace.side==='LONG' ? 'belowBar':'aboveBar', shape:'arrowUp', color: baseColor, text: `${trace.tradeId}:CONF` });
-        out.push({ type:'HLINE', time, price: item.level, color: baseColor, style:'dashed', text: `${trace.tradeId}:${item.tag}` });
+        out.push({ type:'HSEG', t0: time, t1: time, price: item.level, color: baseColor, style:'dashed', text: `${trace.tradeId}:${item.tag}` });
         continue;
       }
       if (item.kind === 'OB') {
-        out.push({ type:'RANGE_HINT', time, high: item.high, low: item.low, color: baseColor, text: `${trace.tradeId}:OB` });
+        out.push({ type:'RANGE_SEG', t0: time, t1: time, high: item.high, low: item.low, color: baseColor, text: `${trace.tradeId}:OB` });
         continue;
       }
       if (item.kind === 'ENTRY') {
         out.push({ type:'MARKER', time, position: trace.side==='LONG' ? 'belowBar':'aboveBar', shape:'square', color: baseColor, text: `${trace.tradeId}:ENTRY` });
-        out.push({ type:'HLINE', time, price: item.entryPrice, color: baseColor, style:'solid', text: `${trace.tradeId}:entry` });
-        out.push({ type:'HLINE', time, price: item.stopPrice, color: '#6b7280', style:'dashed', text: `${trace.tradeId}:stop` });
-        out.push({ type:'HLINE', time, price: item.takePrice, color: '#6b7280', style:'dashed', text: `${trace.tradeId}:take` });
+        out.push({ type:'HSEG', t0: time, t1: time, price: item.entryPrice, color: baseColor, style:'solid', text: `${trace.tradeId}:entry` });
+        out.push({ type:'HSEG', t0: time, t1: time, price: item.stopPrice, color: '#6b7280', style:'dashed', text: `${trace.tradeId}:stop` });
+        out.push({ type:'HSEG', t0: time, t1: time, price: item.takePrice, color: '#6b7280', style:'dashed', text: `${trace.tradeId}:take` });
         continue;
       }
       if (item.kind === 'BIAS') {
-        // optional: show bias line lightly once
-        out.push({ type:'HLINE', time, price: item.level, color: '#94a3b8', style:'dotted', text: `${trace.tradeId}:bias` });
+        out.push({ type:'HSEG', t0: time, t1: time, price: item.level, color: '#94a3b8', style:'dotted', text: `${trace.tradeId}:bias` });
         continue;
       }
+    }
+  }
+  return out;
+}
+
+function parseRlTradesCsv(text: string): ViewerEvent[] {
+  const lines = text.split(/\r?\n/).filter(Boolean);
+  if (lines.length < 2) return [];
+  const header = lines[0].split(',').map(s => s.trim());
+  const idx = (name: string) => header.findIndex(h => h.toLowerCase() === name.toLowerCase());
+
+  const sideI = idx('side');
+  const entryTsI = idx('entry_ts');
+  const entryPriceI = idx('entry_price');
+  const exitTsI = idx('exit_ts');
+  const exitPriceI = idx('exit_price');
+  const grossReturnI = idx('gross_return');
+  const exitReasonI = idx('exit_reason');
+
+  const out: ViewerEvent[] = [];
+  for (let i = 1; i < lines.length; i++) {
+    const row = lines[i].split(',');
+    if (row.length < header.length) continue;
+
+    const side = row[sideI] ?? '';
+    const entryTsMs = Number(row[entryTsI]);
+    const entryPrice = Number(row[entryPriceI]);
+    const exitTsMs = Number(row[exitTsI]);
+    const exitPrice = Number(row[exitPriceI]);
+    const grossReturn = grossReturnI !== -1 ? Number(row[grossReturnI]) : NaN;
+    const exitReason = exitReasonI !== -1 ? row[exitReasonI] : '';
+
+    if (!Number.isFinite(entryTsMs) || !Number.isFinite(entryPrice)) continue;
+
+    const entryTime = Math.floor(entryTsMs / 1000) as UTCTimestamp;
+    const entryColor = side === 'LONG' ? '#16a34a' : '#dc2626';
+    out.push({
+      type: 'MARKER',
+      time: entryTime,
+      position: side === 'LONG' ? 'belowBar' : 'aboveBar',
+      shape: side === 'LONG' ? 'arrowUp' : 'arrowDown',
+      color: entryColor,
+      text: `${side} IN`,
+    });
+    // out.push({
+    //   type: 'HSEG',
+    //   t0: entryTime,
+    //   t1: entryTime,
+    //   price: entryPrice,
+    //   color: entryColor,
+    //   style: 'solid',
+    //   text: `${side} entry`,
+    // });
+
+    if (Number.isFinite(exitTsMs) && Number.isFinite(exitPrice)) {
+      const exitTime = Math.floor(exitTsMs / 1000) as UTCTimestamp;
+      const exitColor = Number.isFinite(grossReturn) && grossReturn >= 0 ? '#2563eb' : '#6b7280';
+      out.push({
+        type: 'MARKER',
+        time: exitTime,
+        position: side === 'LONG' ? 'aboveBar' : 'belowBar',
+        shape: 'circle',
+        color: exitColor,
+        text: 'RL OUT',
+      });
+      // out.push({
+      //   type: 'HSEG',
+      //   t0: exitTime,
+      //   t1: exitTime,
+      //   price: exitPrice,
+      //   color: exitColor,
+      //   style: 'dashed',
+      //   text: `RL exit${exitReason ? ':' + exitReason : ''}`,
+      // });
     }
   }
   return out;
@@ -139,7 +216,7 @@ function render() {
   candlesSeries.setData(candles);
   volSeries.setData(candles.map(c => ({ time: c.time, value: c.volume ?? 0 })));
 
-  const allEvents = events.concat(tradeEvents);
+  const allEvents = events.concat(tradeEvents).concat(rlTradeEvents);
   const markers = allEvents.filter(e=>e.type==='MARKER').map(e=>({
     time: e.time,
     position: e.position,
@@ -149,40 +226,47 @@ function render() {
   }));
   markersApi.setMarkers(markers);
 
-  // NOTE: price lines are append-only in this simple viewer.
-  // For iterative dev, hit Reset.
+  clearSegments();
   for (const e of allEvents) {
-    if (e.type==='HLINE') {
+    if (e.type === 'HSEG') {
       const style = e.style ?? 'solid';
       const lineStyle =
-        style==='dashed' ? LineStyle.Dashed :
-        style==='dotted' ? LineStyle.Dotted :
+        style === 'dashed' ? LineStyle.Dashed :
+        style === 'dotted' ? LineStyle.Dotted :
         LineStyle.Solid;
 
-      candlesSeries.createPriceLine({
-        price: e.price,
-        color: e.color,
-        lineWidth: 1,
-        lineStyle,
-        axisLabelVisible: true,
-        title: e.text,
-      });
+      const s = chart.addSeries(LineSeries, { color: e.color, lineWidth: 1, lineStyle });
+      s.setData([{ time: e.t0, value: e.price }, { time: e.t1, value: e.price }]);
+      segSeries.push(s);
+      continue;
     }
-    if (e.type==='RANGE_HINT') {
-      candlesSeries.createPriceLine({ price: e.high, color: e.color, lineWidth: 1, lineStyle: LineStyle.Dotted, axisLabelVisible: true, title: e.text+' (H)' });
-      candlesSeries.createPriceLine({ price: e.low,  color: e.color, lineWidth: 1, lineStyle: LineStyle.Dotted, axisLabelVisible: true, title: e.text+' (L)' });
+    if (e.type === 'RANGE_SEG') {
+      const style = e.style ?? 'dotted';
+      const lineStyle = style === 'solid' ? LineStyle.Solid : LineStyle.Dotted;
+
+      const s1 = chart.addSeries(LineSeries, { color: e.color, lineWidth: 1, lineStyle });
+      s1.setData([{ time: e.t0, value: e.high }, { time: e.t1, value: e.high }]);
+      segSeries.push(s1);
+
+      const s2 = chart.addSeries(LineSeries, { color: e.color, lineWidth: 1, lineStyle });
+      s2.setData([{ time: e.t0, value: e.low }, { time: e.t1, value: e.low }]);
+      segSeries.push(s2);
+      continue;
     }
   }
 
   chart.timeScale().fitContent();
-  setStatus(`candles=${candles.length} events=${events.length} markers=${markers.length}`);
+  setStatus(`candles=${candles.length} events=${events.length} strategyTrace=${tradeEvents.length} rlTrades=${rlTradeEvents.length} markers=${markers.length}`);
 }
 
 ($('resetBtn') as HTMLButtonElement).addEventListener('click', ()=>{
   candles = [];
   events = [];
+  tradeEvents = [];
+  rlTradeEvents = [];
   candlesSeries.setData([]);
   markersApi.setMarkers([]);
+  clearSegments();
   setStatus('Reset done. Load files again.');
 });
 
@@ -198,12 +282,11 @@ function render() {
 ($('evFile') as HTMLInputElement).addEventListener('change', async ()=>{
   const f = ($('evFile') as HTMLInputElement).files?.[0];
   if (!f) return;
-  setStatus('Loading events...');
+  setStatus('Loading event_viewer...');
   const text = await readFile(f);
   events = parseJsonl(text);
   render();
 });
-
 
 ($('tradeFile') as HTMLInputElement).addEventListener('change', async ()=>{
   const f = ($('tradeFile') as HTMLInputElement).files?.[0];
@@ -214,6 +297,14 @@ function render() {
   render();
 });
 
+($('rlTradesFile') as HTMLInputElement).addEventListener('change', async ()=>{
+  const f = ($('rlTradesFile') as HTMLInputElement).files?.[0];
+  if (!f) return;
+  setStatus('Loading RL trades csv...');
+  const text = await readFile(f);
+  rlTradeEvents = parseRlTradesCsv(text);
+  render();
+});
 
 new ResizeObserver(()=> {
   chart.applyOptions({ width: chartEl.clientWidth, height: chartEl.clientHeight });

@@ -27,14 +27,16 @@
         <input id="evFile" type="file" accept=".jsonl,application/json,text/plain" />
         <span class="pill">3) trade_events.jsonl</span>
         <input id="tradeFile" type="file" accept=".jsonl,application/json,text/plain" />
+        <span class="pill">4) RL trades csv</span>
+        <input id="rlTradesFile" type="file" accept=".csv,text/csv" />
         <button id="resetBtn">Reset</button>
       </div>
-      <div class="hint">Generate <code>event_viewer.jsonl</code> with <code>npm run build-viewer</code>. Generate <code>trade_events.jsonl</code> with <code>npm run strategy -- --outTrace ...</code>. No network; files stay local.</div>
+      <div class="hint">Load CSV, Pine-like event_viewer.jsonl, optional trade_events.jsonl, and optional RL evaluation trades csv (e.g. data9_trades.csv).</div>
     </header>
     <div id="chart"></div>
     <footer>
       <div id="status">Load files to render.</div>
-      <div>Markers + horizontal lines; OB shown as two dotted lines.</div>
+      <div>Markers + finite segments (Pine-like); OB shown as finite high/low segments.</div>
     </footer>
   </div>
   <script type="module" src="/src/main.ts"></script>
