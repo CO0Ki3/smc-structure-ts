@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>SMC Event Viewer</title>
+  <style>
+    html,body{margin:0;padding:0;height:100%;font-family:ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto;}
+    #app{display:flex;flex-direction:column;height:100%}
+    header{padding:10px 12px;border-bottom:1px solid #e5e7eb;display:flex;flex-direction:column;gap:8px}
+    .row{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+    .pill{border:1px solid #e5e7eb;border-radius:999px;padding:6px 10px;font-size:12px;background:#f9fafb}
+    .hint{color:#6b7280;font-size:12px}
+    #chart{flex:1;min-height:420px}
+    footer{padding:8px 12px;border-top:1px solid #e5e7eb;font-size:12px;color:#6b7280;display:flex;justify-content:space-between;flex-wrap:wrap;gap:12px}
+    button{font-size:12px;padding:6px 10px;border-radius:8px;border:1px solid #e5e7eb;background:white;cursor:pointer}
+    button:hover{background:#f9fafb}
+  </style>
+</head>
+<body>
+  <div id="app">
+    <header>
+      <div class="row">
+        <span class="pill">1) CSV (15m OHLCV)</span>
+        <input id="csvFile" type="file" accept=".csv,text/csv" />
+        <span class="pill">2) event_viewer.jsonl</span>
+        <input id="evFile" type="file" accept=".jsonl,application/json,text/plain" />
+        <span class="pill">3) trade_events.jsonl</span>
+        <input id="tradeFile" type="file" accept=".jsonl,application/json,text/plain" />
+        <button id="resetBtn">Reset</button>
+      </div>
+      <div class="hint">Generate <code>event_viewer.jsonl</code> with <code>npm run build-viewer</code>. Generate <code>trade_events.jsonl</code> with <code>npm run strategy -- --outTrace ...</code>. No network; files stay local.</div>
+    </header>
+    <div id="chart"></div>
+    <footer>
+      <div id="status">Load files to render.</div>
+      <div>Markers + horizontal lines; OB shown as two dotted lines.</div>
+    </footer>
+  </div>
+  <script type="module" src="/src/main.ts"></script>
+</body>
+</html>
