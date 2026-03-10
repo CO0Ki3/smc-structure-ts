@@ -11,7 +11,8 @@
     "smc": "tsx src/index.ts",
     "build-viewer": "tsx src/tools/buildViewerEvents.ts",
     "strategy": "tsx src/tools/runStrategyCli.ts",
-    "build-dataset": "tsx src/tools/buildDatasetCli.ts"
+    "build-dataset": "tsx src/tools/buildDatasetCli.ts",
+    "smc-batch": "tsx src/tools/buildSmcBatchCli.ts"
   },
   "dependencies": {
     "csv-parse": "^5.5.6"
