@@ -47,7 +47,7 @@ cfg.eqThr = parseFloatArg("--eqThr", cfg.eqThr);
 cfg.ob = !has("--no-ob");
 cfg.obMitigation = (arg("--obMitigation") as any) ?? cfg.obMitigation;
 cfg.obMax = parseIntArg("--obMax", cfg.obMax);
-cfg.fvg.enabled = has("--fvg");
+cfg.fvg.enabled = !has("--no-fvg");
 cfg.fvg.autoThreshold = !has("--no-fvg-auto-threshold");
 cfg.fvg.extendBars = parseIntArg("--fvgExtendBars", cfg.fvg.extendBars);
 
