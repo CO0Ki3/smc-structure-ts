@@ -150,6 +150,15 @@ function parseRlTradesCsv(text: string): ViewerEvent[] {
   const exitPriceI = idx('exit_price');
   const grossReturnI = idx('gross_return');
   const exitReasonI = idx('exit_reason');
+  const contextI = idx('entry_context_summary');
+  const swingBiasI = idx('entry_swing_bias');
+  const swingTagI = idx('entry_swing_break_tag');
+  const internalBiasI = idx('entry_internal_bias');
+  const internalTagI = idx('entry_internal_break_tag');
+  const insideBullI = idx('entry_inside_bullish_ob');
+  const insideBearI = idx('entry_inside_bearish_ob');
+  const bullDistI = idx('entry_nearest_bullish_ob_dist_mid_atr');
+  const bearDistI = idx('entry_nearest_bearish_ob_dist_mid_atr');
 
   const out: ViewerEvent[] = [];
   for (let i = 1; i < lines.length; i++) {
@@ -163,49 +172,81 @@ function parseRlTradesCsv(text: string): ViewerEvent[] {
     const exitPrice = Number(row[exitPriceI]);
     const grossReturn = grossReturnI !== -1 ? Number(row[grossReturnI]) : NaN;
     const exitReason = exitReasonI !== -1 ? row[exitReasonI] : '';
+    const contextSummary = contextI !== -1 ? row[contextI] : '';
 
     if (!Number.isFinite(entryTsMs) || !Number.isFinite(entryPrice)) continue;
 
     const entryTime = Math.floor(entryTsMs / 1000) as UTCTimestamp;
     const entryColor = side === 'LONG' ? '#16a34a' : '#dc2626';
+
+    const extraParts: string[] = [];
+    if (!contextSummary) {
+      const swingTag = swingTagI !== -1 ? row[swingTagI] : '';
+      const swingBias = swingBiasI !== -1 ? row[swingBiasI] : '';
+      const internalTag = internalTagI !== -1 ? row[internalTagI] : '';
+      const internalBias = internalBiasI !== -1 ? row[internalBiasI] : '';
+      const insideBull = insideBullI !== -1 ? row[insideBullI] : '';
+      const insideBear = insideBearI !== -1 ? row[insideBearI] : '';
+      const bullDist = bullDistI !== -1 ? row[bullDistI] : '';
+      const bearDist = bearDistI !== -1 ? row[bearDistI] : '';
+
+      if (swingTag) extraParts.push(`SW:${swingTag}:${swingBias}`);
+      if (internalTag) extraParts.push(`IN:${internalTag}:${internalBias}`);
+      if (insideBull === '1') extraParts.push('IN_BULL_OB');
+      if (insideBear === '1') extraParts.push('IN_BEAR_OB');
+      if (bullDist && bullDist !== '') extraParts.push(`BULL_OB_DIST:${Number(bullDist).toFixed(2)}`);
+      if (bearDist && bearDist !== '') extraParts.push(`BEAR_OB_DIST:${Number(bearDist).toFixed(2)}`);
+    }
+
+    const contextText = contextSummary && contextSummary.length > 0
+      ? contextSummary
+      : extraParts.join(' | ');
+
+    const entryLabel = contextText && contextText.length > 0
+      ? `RL ${side} IN | ${contextText}`
+      : `RL ${side} IN`;
+
     out.push({
       type: 'MARKER',
       time: entryTime,
       position: side === 'LONG' ? 'belowBar' : 'aboveBar',
       shape: side === 'LONG' ? 'arrowUp' : 'arrowDown',
       color: entryColor,
-      text: `${side} IN`,
+      text: entryLabel,
     });
-    // out.push({
-    //   type: 'HSEG',
-    //   t0: entryTime,
-    //   t1: entryTime,
-    //   price: entryPrice,
-    //   color: entryColor,
-    //   style: 'solid',
-    //   text: `${side} entry`,
-    // });
+    out.push({
+      type: 'HSEG',
+      t0: entryTime,
+      t1: entryTime,
+      price: entryPrice,
+      color: entryColor,
+      style: 'solid',
+      text: `RL ${side} entry @ ${entryPrice}`,
+    });
 
     if (Number.isFinite(exitTsMs) && Number.isFinite(exitPrice)) {
       const exitTime = Math.floor(exitTsMs / 1000) as UTCTimestamp;
       const exitColor = Number.isFinite(grossReturn) && grossReturn >= 0 ? '#2563eb' : '#6b7280';
+      const pct = Number.isFinite(grossReturn) ? `${(grossReturn * 100).toFixed(2)}%` : '';
+      const exitLabel = `RL OUT${exitReason ? ':' + exitReason : ''}${pct ? ' | ' + pct : ''}`;
+
       out.push({
         type: 'MARKER',
         time: exitTime,
         position: side === 'LONG' ? 'aboveBar' : 'belowBar',
         shape: 'circle',
         color: exitColor,
-        text: 'RL OUT',
+        text: exitLabel,
       });
-      // out.push({
-      //   type: 'HSEG',
-      //   t0: exitTime,
-      //   t1: exitTime,
-      //   price: exitPrice,
-      //   color: exitColor,
-      //   style: 'dashed',
-      //   text: `RL exit${exitReason ? ':' + exitReason : ''}`,
-      // });
+      out.push({
+        type: 'HSEG',
+        t0: exitTime,
+        t1: exitTime,
+        price: exitPrice,
+        color: exitColor,
+        style: 'dashed',
+        text: `RL exit @ ${exitPrice}${pct ? ' | ' + pct : ''}`,
+      });
     }
   }
   return out;

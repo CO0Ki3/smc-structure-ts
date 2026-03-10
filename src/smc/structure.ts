@@ -1,5 +1,5 @@
 import { Bar } from "../io/types.js";
-import { Bias, Pivot, SmcEvent, SmcState, SmcConfig, BULLISH, BEARISH, OrderBlock } from "./types.js";
+import { Bias, Pivot, SmcEvent, SmcState, SmcConfig, BULLISH, BEARISH, OrderBlock, FairValueGap } from "./types.js";
 import { leg, startOfNewLeg, startOfBearishLeg, startOfBullishLeg } from "./leg.js";
 import { updatePivot } from "./pivots.js";
 import { tryEqualHighLow } from "./equalHighLow.js";
@@ -13,21 +13,22 @@ export class SmcStructure {
   private prevInternalLeg: 0 | 1 = 0;
   private prevEqLeg: 0 | 1 = 0;
 
-  // arrays for OB selection
   private parsedHighs: number[] = [];
   private parsedLows: number[] = [];
   private highs: number[] = [];
   private lows: number[] = [];
   private times: number[] = [];
 
+  private cumulativeAbsBarDeltaPct = 0;
+  private cumulativeBarCount = 0;
+
   constructor(cfg: SmcConfig, private readonly state: SmcState) {
     this.cfg = cfg;
   }
 
-  step(bar: Bar, index: number, atrForEq: number | null, atrForVol: number | null): SmcEvent[] {
+  step(bar: Bar, index: number, bars: Bar[], atrForEq: number | null, atrForVol: number | null): SmcEvent[] {
     const ev: SmcEvent[] = [];
 
-    // volatility parsing
     const highVol = this.cfg.volatilityFilter.enabled
       ? isHighVolatilityBar(bar, atrForVol, this.cfg.volatilityFilter.mult)
       : false;
@@ -39,14 +40,10 @@ export class SmcStructure {
     this.lows.push(bar.low);
     this.times.push(bar.ts);
 
-    // 1) Pivots: swing and internal
     ev.push(...this.updatePivots(bar, index, atrForEq));
-
-    // 2) Structure breaks: internal then swing
     ev.push(...this.displayStructure(bar, index, true));
     ev.push(...this.displayStructure(bar, index, false));
 
-    // 3) Mitigate order blocks
     if (this.cfg.ob) {
       const bearSource = (this.cfg.obMitigation === "close") ? bar.close : bar.high;
       const bullSource = (this.cfg.obMitigation === "close") ? bar.close : bar.low;
@@ -64,18 +61,20 @@ export class SmcStructure {
       this.state.swingOrderBlocks = swRes.kept;
     }
 
+    if (this.cfg.fvg.enabled) {
+      ev.push(...this.updateFvgs(bar, index, bars));
+    }
+
     return ev;
   }
 
   private updatePivots(bar: Bar, index: number, atrForEq: number | null): SmcEvent[] {
     const ev: SmcEvent[] = [];
 
-    // Swing pivots
     const swingSize = this.cfg.swingLen;
     const swingLeg = legFromBars(this.highs, this.lows, index, swingSize);
     if (startOfNewLeg(this.prevSwingLeg, swingLeg)) {
       if (startOfBullishLeg(this.prevSwingLeg, swingLeg)) {
-        // pivot low at index - size
         const j = index - swingSize;
         const level = this.lows[j];
         updatePivot(this.state.swingLow, level, this.times[j], j);
@@ -89,7 +88,6 @@ export class SmcStructure {
     }
     this.prevSwingLeg = swingLeg;
 
-    // Internal pivots (smaller size)
     const internalSize = this.cfg.internalLen;
     const internalLeg = legFromBars(this.highs, this.lows, index, internalSize);
     if (startOfNewLeg(this.prevInternalLeg, internalLeg)) {
@@ -107,18 +105,14 @@ export class SmcStructure {
     }
     this.prevInternalLeg = internalLeg;
 
-    // Equal highs/lows (using eqLen)
     const eqSize = this.cfg.eqLen;
     const eqLeg = legFromBars(this.highs, this.lows, index, eqSize);
     if (startOfNewLeg(this.prevEqLeg, eqLeg)) {
-      // pivot low/high at index - eqSize
       const j = index - eqSize;
       if (j >= 0) {
-        // if bullish leg starts -> low pivot
         if (startOfBullishLeg(this.prevEqLeg, eqLeg)) {
           const level = this.lows[j];
           const eq = tryEqualHighLow(this.state.equalLow, level, false, eqSize, this.times[j], atrForEq, this.cfg.eqThr);
-          // update equalLow pivot
           updatePivot(this.state.equalLow, level, this.times[j], j);
           if (eq) ev.push(eq);
         } else if (startOfBearishLeg(this.prevEqLeg, eqLeg)) {
@@ -141,7 +135,6 @@ export class SmcStructure {
     const t = internal ? this.state.internalTrend : this.state.swingTrend;
     const scope = internal ? "INTERNAL" as const : "SWING" as const;
 
-    // Bullish break: close crosses above pivot high level
     if (pHigh.currentLevel !== null && !pHigh.crossed && bar.close > pHigh.currentLevel) {
       const tag = (t.bias === BEARISH) ? "CHOCH" : "BOS";
       pHigh.crossed = true;
@@ -154,7 +147,6 @@ export class SmcStructure {
       }
     }
 
-    // Bearish break: close crosses below pivot low level
     if (pLow.currentLevel !== null && !pLow.crossed && bar.close < pLow.currentLevel) {
       const tag = (t.bias === BULLISH) ? "CHOCH" : "BOS";
       pLow.crossed = true;
@@ -170,6 +162,50 @@ export class SmcStructure {
     return ev;
   }
 
+  private updateFvgs(bar: Bar, index: number, bars: Bar[]): SmcEvent[] {
+    const ev: SmcEvent[] = [];
+
+    // fill existing
+    const kept: FairValueGap[] = [];
+    for (const g of this.state.fairValueGaps) {
+      const filled = (g.bias === BULLISH && bar.low < g.bottom) || (g.bias === BEARISH && bar.high > g.top);
+      if (filled) {
+        ev.push({ type: "FVG_FILLED", ts: bar.ts, bias: g.bias, top: g.top, bottom: g.bottom, srcTs: g.ts });
+      } else {
+        kept.push(g);
+      }
+    }
+    this.state.fairValueGaps = kept;
+
+    if (index < 2) return ev;
+
+    const prev = bars[index - 1];
+    const prev2 = bars[index - 2];
+
+    const barDeltaPct = prev.open !== 0 ? Math.abs((prev.close - prev.open) / (prev.open * 100)) : 0;
+    this.cumulativeAbsBarDeltaPct += barDeltaPct;
+    this.cumulativeBarCount += 1;
+    const avgAbsPct = this.cumulativeBarCount > 0 ? this.cumulativeAbsBarDeltaPct / this.cumulativeBarCount : 0;
+    const threshold = this.cfg.fvg.autoThreshold ? avgAbsPct * 2 : 0;
+
+    const bullish = bar.low > prev2.high && prev.close > prev2.high && barDeltaPct > threshold;
+    const bearish = bar.high < prev2.low && prev.close < prev2.low && barDeltaPct > threshold;
+
+    if (bullish) {
+      const g: FairValueGap = { top: bar.low, bottom: prev2.high, ts: bar.ts, bias: BULLISH };
+      this.state.fairValueGaps.unshift(g);
+      ev.push({ type: "FVG_CREATE", ts: bar.ts, bias: BULLISH, top: g.top, bottom: g.bottom, srcTs: g.ts });
+    }
+
+    if (bearish) {
+      const g: FairValueGap = { top: bar.high, bottom: prev2.low, ts: bar.ts, bias: BEARISH };
+      this.state.fairValueGaps.unshift(g);
+      ev.push({ type: "FVG_CREATE", ts: bar.ts, bias: BEARISH, top: g.top, bottom: g.bottom, srcTs: g.ts });
+    }
+
+    return ev;
+  }
+
   private unshiftOb(internal: boolean, ob: OrderBlock, nowTs: number, ev: SmcEvent[]) {
     const list = internal ? this.state.internalOrderBlocks : this.state.swingOrderBlocks;
     list.unshift(ob);
@@ -178,7 +214,6 @@ export class SmcStructure {
   }
 }
 
-// Helper: leg logic using arrays (no Bar allocation)
 function legFromBars(highs: number[], lows: number[], i: number, size: number): 0 | 1 {
   if (i < size) return 0;
   const j = i - size;

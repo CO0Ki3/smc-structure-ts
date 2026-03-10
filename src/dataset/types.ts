@@ -52,4 +52,19 @@ export type DatasetRow = {
   nearest_bearish_ob_age: number | null;
   nearest_bearish_ob_dist_mid_atr: number | null;
   inside_bearish_ob: number;
+
+  active_bullish_fvg_count: number;
+  active_bearish_fvg_count: number;
+
+  nearest_bullish_fvg_top: number | null;
+  nearest_bullish_fvg_bottom: number | null;
+  nearest_bullish_fvg_age: number | null;
+  nearest_bullish_fvg_dist_mid_atr: number | null;
+  inside_bullish_fvg: number;
+
+  nearest_bearish_fvg_top: number | null;
+  nearest_bearish_fvg_bottom: number | null;
+  nearest_bearish_fvg_age: number | null;
+  nearest_bearish_fvg_dist_mid_atr: number | null;
+  inside_bearish_fvg: number;
 };

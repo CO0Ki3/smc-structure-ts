@@ -12,7 +12,9 @@ type SmcEvent =
   | { type: "STRUCTURE_BREAK"; scope: "SWING" | "INTERNAL"; tag: "BOS" | "CHOCH"; dir: 1 | -1 | 0; ts: number; level: number }
   | { type: "EQ"; eqType: "EQH" | "EQL"; ts: number; level: number; basePivotTs: number; baseLevel: number }
   | { type: "OB_CREATE"; scope: "SWING" | "INTERNAL"; ts: number; bias: 1 | -1 | 0; high: number; low: number; srcTs: number }
-  | { type: "OB_MITIGATED"; scope: "SWING" | "INTERNAL"; ts: number; bias: 1 | -1 | 0; high: number; low: number; srcTs: number };
+  | { type: "OB_MITIGATED"; scope: "SWING" | "INTERNAL"; ts: number; bias: 1 | -1 | 0; high: number; low: number; srcTs: number }
+  | { type: "FVG_CREATE"; ts: number; bias: 1 | -1 | 0; top: number; bottom: number; srcTs: number }
+  | { type: "FVG_FILLED"; ts: number; bias: 1 | -1 | 0; top: number; bottom: number; srcTs: number };
 
 function arg(name: string): string | undefined {
   const i = process.argv.indexOf(name);
@@ -83,6 +85,8 @@ function colorFor(obj: any): string {
   if (obj.type === 'EQ') return '#8b5cf6';
   if (obj.type === 'OB_CREATE') return obj.bias === 1 ? '#10b981' : '#ef4444';
   if (obj.type === 'OB_MITIGATED') return '#6b7280';
+  if (obj.type === 'FVG_CREATE') return obj.bias === 1 ? '#22c55e' : '#f43f5e';
+  if (obj.type === 'FVG_FILLED') return '#94a3b8';
   return '#111827';
 }
 
@@ -191,6 +195,34 @@ for (const ob of [...swingTop, ...intTop]) {
   const color = ob.bias === 1 ? '#10b981' : '#ef4444';
   out.push({ type:'MARKER', time:t0, position: ob.bias===1 ? 'belowBar' : 'aboveBar', shape:'square', color, text:`${ob.scope}:OB` });
   out.push({ type:'RANGE_SEG', t0, t1, high:ob.high, low:ob.low, color, style:'dotted', text:`${ob.scope}:OB` });
+}
+
+
+// Emit FVG segments with lifetimes
+type FvgRec = { bias: 1|-1; top: number; bottom: number; createTs: number; fillTs: number | null; srcTs: number };
+const fvgBySrc = new Map<number, FvgRec>();
+for (const e of smc) {
+  if (e.type === 'FVG_CREATE' && (e.bias === 1 || e.bias === -1)) {
+    fvgBySrc.set(e.srcTs, {
+      bias: e.bias,
+      top: e.top,
+      bottom: e.bottom,
+      createTs: nearestExisting(toSec(e.ts)!),
+      fillTs: null,
+      srcTs: e.srcTs,
+    });
+  }
+  if (e.type === 'FVG_FILLED') {
+    const rec = fvgBySrc.get(e.srcTs);
+    if (rec && rec.fillTs === null) rec.fillTs = nearestExisting(toSec(e.ts)!);
+  }
+}
+for (const g of fvgBySrc.values()) {
+  const t0 = g.createTs;
+  const t1 = g.fillTs ?? lastChartTime;
+  const color = g.bias === 1 ? '#22c55e' : '#f43f5e';
+  out.push({ type:'MARKER', time:t0, position: g.bias===1 ? 'belowBar' : 'aboveBar', shape:'circle', color, text:`FVG` });
+  out.push({ type:'RANGE_SEG', t0, t1, high:g.top, low:g.bottom, color, style:'solid', text:`FVG` });
 }
 
 // PRESENT mode: keep only the most recent instances per category (basic)

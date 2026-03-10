@@ -15,6 +15,11 @@ export function defaultConfig(): SmcConfig {
     obMax: 100,
     obMitigation: "highlow",
     volatilityFilter: { enabled: true, atrLen: 200, mult: 2.0 },
+    fvg: {
+      enabled: true,
+      autoThreshold: true,
+      extendBars: 1,
+    },
   };
 }
 
@@ -30,6 +35,7 @@ export function newState(): SmcState {
     internalTrend: { bias: 0 },
     swingOrderBlocks: [],
     internalOrderBlocks: [],
+    fairValueGaps: [],
   };
 }
 
@@ -46,7 +52,7 @@ export function runSmc(bars: Bar[], cfg: SmcConfig): SmcEvent[] {
     const atrEqVal = atrEq.update(bar);
     const atrVolVal = atrVol.update(bar);
 
-    const ev = smc.step(bar, i, atrEqVal, atrVolVal);
+    const ev = smc.step(bar, i, bars, atrEqVal, atrVolVal);
     for (const e of ev) events.push(e);
   }
 

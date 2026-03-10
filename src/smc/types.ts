@@ -7,8 +7,8 @@ export type Pivot = {
   currentLevel: number | null;
   lastLevel: number | null;
   crossed: boolean;
-  ts: number | null;       // pivot timestamp (bar open time)
-  index: number | null;    // bar index
+  ts: number | null;
+  index: number | null;
 };
 
 export type Trend = { bias: Bias };
@@ -16,8 +16,15 @@ export type Trend = { bias: Bias };
 export type OrderBlock = {
   high: number;
   low: number;
-  ts: number;      // source bar ts
-  bias: Bias;      // +1 bullish OB, -1 bearish OB
+  ts: number;
+  bias: Bias;
+};
+
+export type FairValueGap = {
+  top: number;
+  bottom: number;
+  ts: number;     // creation ts
+  bias: Bias;     // +1 bullish, -1 bearish
 };
 
 export type SmcEvent =
@@ -26,21 +33,28 @@ export type SmcEvent =
   | { type: "STRUCTURE_BREAK"; scope: "SWING" | "INTERNAL"; tag: "BOS" | "CHOCH"; dir: Bias; ts: number; level: number }
   | { type: "EQ"; eqType: "EQH" | "EQL"; ts: number; level: number; basePivotTs: number; baseLevel: number }
   | { type: "OB_CREATE"; scope: "SWING" | "INTERNAL"; ts: number; bias: Bias; high: number; low: number; srcTs: number }
-  | { type: "OB_MITIGATED"; scope: "SWING" | "INTERNAL"; ts: number; bias: Bias; high: number; low: number; srcTs: number };
+  | { type: "OB_MITIGATED"; scope: "SWING" | "INTERNAL"; ts: number; bias: Bias; high: number; low: number; srcTs: number }
+  | { type: "FVG_CREATE"; ts: number; bias: Bias; top: number; bottom: number; srcTs: number }
+  | { type: "FVG_FILLED"; ts: number; bias: Bias; top: number; bottom: number; srcTs: number };
 
 export type SmcConfig = {
-  swingLen: number;       // like swingsLengthInput (default 50 for 15m)
-  internalLen: number;    // internal structure length (default 5)
-  eqLen: number;          // equal highs/lows confirmation bars
-  eqThr: number;          // threshold multiplier in (0, 0.5), multiplied by ATR200
-  atrLenForEq: number;    // default 200
+  swingLen: number;
+  internalLen: number;
+  eqLen: number;
+  eqThr: number;
+  atrLenForEq: number;
   ob: boolean;
-  obMax: number;          // cap stored blocks
+  obMax: number;
   obMitigation: "close" | "highlow";
   volatilityFilter: {
     enabled: boolean;
-    atrLen: number; // default 200
-    mult: number;   // default 2.0 (bar range >= mult * atr)
+    atrLen: number;
+    mult: number;
+  };
+  fvg: {
+    enabled: boolean;
+    autoThreshold: boolean;
+    extendBars: number;
   };
 };
 
@@ -55,4 +69,5 @@ export type SmcState = {
   internalTrend: Trend;
   swingOrderBlocks: OrderBlock[];
   internalOrderBlocks: OrderBlock[];
+  fairValueGaps: FairValueGap[];
 };

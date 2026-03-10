@@ -7,7 +7,9 @@ type SmcEvent =
   | { type: "STRUCTURE_BREAK"; scope: "SWING" | "INTERNAL"; tag: "BOS" | "CHOCH"; dir: 1 | -1 | 0; ts: number; level: number }
   | { type: "EQ"; eqType: "EQH" | "EQL"; ts: number; level: number; basePivotTs: number; baseLevel: number }
   | { type: "OB_CREATE"; scope: "SWING" | "INTERNAL"; ts: number; bias: 1 | -1 | 0; high: number; low: number; srcTs: number }
-  | { type: "OB_MITIGATED"; scope: "SWING" | "INTERNAL"; ts: number; bias: 1 | -1 | 0; high: number; low: number; srcTs: number };
+  | { type: "OB_MITIGATED"; scope: "SWING" | "INTERNAL"; ts: number; bias: 1 | -1 | 0; high: number; low: number; srcTs: number }
+  | { type: "FVG_CREATE"; ts: number; bias: 1 | -1 | 0; top: number; bottom: number; srcTs: number }
+  | { type: "FVG_FILLED"; ts: number; bias: 1 | -1 | 0; top: number; bottom: number; srcTs: number };
 
 type ActiveOB = {
   srcTs: number;
@@ -16,6 +18,14 @@ type ActiveOB = {
   high: number;
   low: number;
   scope: "SWING" | "INTERNAL";
+};
+
+type ActiveFVG = {
+  srcTs: number;
+  createTs: number;
+  bias: 1 | -1;
+  top: number;
+  bottom: number;
 };
 
 function logRet(cur: number, prev: number | null): number | null {
@@ -39,7 +49,6 @@ export function buildStateDataset(datasetId: string, bars: Bar[], events: SmcEve
   const idxByTs = new Map<number, number>();
   for (let i = 0; i < bars.length; i++) idxByTs.set(bars[i].ts, i);
 
-  // ATR(14)
   let prevClose: number | null = null;
   const trBuf: number[] = [];
   let trSum = 0;
@@ -61,6 +70,7 @@ export function buildStateDataset(datasetId: string, bars: Bar[], events: SmcEve
   let eql: { level: number; ts: number } | null = null;
 
   const activeObs = new Map<number, ActiveOB>();
+  const activeFvgs = new Map<number, ActiveFVG>();
 
   const rows: DatasetRow[] = [];
 
@@ -68,7 +78,6 @@ export function buildStateDataset(datasetId: string, bars: Bar[], events: SmcEve
     const b = bars[i];
     const evs = evByTs.get(b.ts) ?? [];
 
-    // Apply all events visible at this bar
     for (const e of evs) {
       if (e.type === "SWING_PIVOT") {
         if (e.pivotType === "HIGH") lastSwingHigh = { level: e.level, ts: e.ts };
@@ -103,31 +112,33 @@ export function buildStateDataset(datasetId: string, bars: Bar[], events: SmcEve
           scope: e.scope,
         });
       }
-      if (e.type === "OB_MITIGATED") {
-        activeObs.delete(e.srcTs);
+      if (e.type === "OB_MITIGATED") activeObs.delete(e.srcTs);
+
+      if (e.type === "FVG_CREATE" && (e.bias === 1 || e.bias === -1)) {
+        activeFvgs.set(e.srcTs, {
+          srcTs: e.srcTs,
+          createTs: e.ts,
+          bias: e.bias,
+          top: e.top,
+          bottom: e.bottom,
+        });
       }
+      if (e.type === "FVG_FILLED") activeFvgs.delete(e.srcTs);
     }
 
-    // ATR
     const tr = prevClose === null
       ? (b.high - b.low)
-      : Math.max(
-          b.high - b.low,
-          Math.abs(b.high - prevClose),
-          Math.abs(b.low - prevClose),
-        );
+      : Math.max(b.high - b.low, Math.abs(b.high - prevClose), Math.abs(b.low - prevClose));
     trBuf.push(tr);
     trSum += tr;
     if (trBuf.length > 14) trSum -= trBuf.shift()!;
     const atr14 = trBuf.length >= 14 ? (trSum / 14) : null;
     prevClose = b.close;
 
-    // returns
     const r1 = i >= 1 ? logRet(b.close, bars[i - 1].close) : null;
     const r4 = i >= 4 ? logRet(b.close, bars[i - 4].close) : null;
     const r16 = i >= 16 ? logRet(b.close, bars[i - 16].close) : null;
 
-    // distances
     const distToSwingHigh = lastSwingHigh ? safeDiv(lastSwingHigh.level - b.close, atr14) : null;
     const distToSwingLow = lastSwingLow ? safeDiv(b.close - lastSwingLow.level, atr14) : null;
     const distToInternalHigh = lastInternalHigh ? safeDiv(lastInternalHigh.level - b.close, atr14) : null;
@@ -135,11 +146,10 @@ export function buildStateDataset(datasetId: string, bars: Bar[], events: SmcEve
     const distToEqh = eqh ? safeDiv(eqh.level - b.close, atr14) : null;
     const distToEql = eql ? safeDiv(b.close - eql.level, atr14) : null;
 
-    // active OB summary
     const bullishObs = [...activeObs.values()].filter(x => x.bias === 1);
     const bearishObs = [...activeObs.values()].filter(x => x.bias === -1);
 
-    const pickNearest = (obs: ActiveOB[]) => {
+    const pickNearestOb = (obs: ActiveOB[]) => {
       if (obs.length === 0) return null;
       let best: { ob: ActiveOB; dist: number } | null = null;
       for (const ob of obs) {
@@ -150,13 +160,31 @@ export function buildStateDataset(datasetId: string, bars: Bar[], events: SmcEve
       return best?.ob ?? null;
     };
 
-    const bullOb = pickNearest(bullishObs);
-    const bearOb = pickNearest(bearishObs);
-
+    const bullOb = pickNearestOb(bullishObs);
+    const bearOb = pickNearestOb(bearishObs);
     const bullDistMid = bullOb ? safeDiv(Math.abs(((bullOb.high + bullOb.low) / 2) - b.close), atr14) : null;
     const bearDistMid = bearOb ? safeDiv(Math.abs(((bearOb.high + bearOb.low) / 2) - b.close), atr14) : null;
 
-    const row: DatasetRow = {
+    const bullishFvgs = [...activeFvgs.values()].filter(x => x.bias === 1);
+    const bearishFvgs = [...activeFvgs.values()].filter(x => x.bias === -1);
+
+    const pickNearestFvg = (fvgs: ActiveFVG[]) => {
+      if (fvgs.length === 0) return null;
+      let best: { fvg: ActiveFVG; dist: number } | null = null;
+      for (const fvg of fvgs) {
+        const mid = (fvg.top + fvg.bottom) / 2;
+        const dist = Math.abs(mid - b.close);
+        if (!best || dist < best.dist) best = { fvg, dist };
+      }
+      return best?.fvg ?? null;
+    };
+
+    const bullFvg = pickNearestFvg(bullishFvgs);
+    const bearFvg = pickNearestFvg(bearishFvgs);
+    const bullFvgDistMid = bullFvg ? safeDiv(Math.abs(((bullFvg.top + bullFvg.bottom) / 2) - b.close), atr14) : null;
+    const bearFvgDistMid = bearFvg ? safeDiv(Math.abs(((bearFvg.top + bearFvg.bottom) / 2) - b.close), atr14) : null;
+
+    rows.push({
       dataset_id: datasetId,
       ts: b.ts,
       open: b.open,
@@ -210,9 +238,22 @@ export function buildStateDataset(datasetId: string, bars: Bar[], events: SmcEve
       nearest_bearish_ob_age: bearOb ? (i - (idxByTs.get(bearOb.createTs) ?? i)) : null,
       nearest_bearish_ob_dist_mid_atr: bearDistMid,
       inside_bearish_ob: bearOb ? ((b.low <= bearOb.high && b.high >= bearOb.low) ? 1 : 0) : 0,
-    };
 
-    rows.push(row);
+      active_bullish_fvg_count: bullishFvgs.length,
+      active_bearish_fvg_count: bearishFvgs.length,
+
+      nearest_bullish_fvg_top: bullFvg?.top ?? null,
+      nearest_bullish_fvg_bottom: bullFvg?.bottom ?? null,
+      nearest_bullish_fvg_age: bullFvg ? (i - (idxByTs.get(bullFvg.createTs) ?? i)) : null,
+      nearest_bullish_fvg_dist_mid_atr: bullFvgDistMid,
+      inside_bullish_fvg: bullFvg ? ((b.low <= bullFvg.top && b.high >= bullFvg.bottom) ? 1 : 0) : 0,
+
+      nearest_bearish_fvg_top: bearFvg?.top ?? null,
+      nearest_bearish_fvg_bottom: bearFvg?.bottom ?? null,
+      nearest_bearish_fvg_age: bearFvg ? (i - (idxByTs.get(bearFvg.createTs) ?? i)) : null,
+      nearest_bearish_fvg_dist_mid_atr: bearFvgDistMid,
+      inside_bearish_fvg: bearFvg ? ((b.low <= bearFvg.top && b.high >= bearFvg.bottom) ? 1 : 0) : 0,
+    });
   }
 
   return rows;

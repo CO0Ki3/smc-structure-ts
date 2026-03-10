@@ -2,7 +2,6 @@ import fs from "node:fs";
 import path from "node:path";
 import { loadBarsFromCsv } from "../io/loadCsv.js";
 import type { Bar } from "../io/types.js";
-import type { SmcEvent } from "../strategy/types.js";
 import type { DatasetRow } from "../dataset/types.js";
 import { buildStateDataset } from "../dataset/buildStateDataset.js";
 
@@ -10,10 +9,6 @@ function arg(name: string): string | undefined {
   const i = process.argv.indexOf(name);
   if (i === -1) return undefined;
   return process.argv[i + 1];
-}
-
-function has(name: string): boolean {
-  return process.argv.includes(name);
 }
 
 function csvEscape(v: unknown): string {
@@ -37,9 +32,9 @@ function writeJsonl(filePath: string, rows: DatasetRow[]) {
   fs.writeFileSync(filePath, rows.map(r => JSON.stringify(r)).join("\n") + (rows.length ? "\n" : ""), "utf-8");
 }
 
-function readEventsJsonl(filePath: string): SmcEvent[] {
+function readEventsJsonl(filePath: string): any[] {
   const lines = fs.readFileSync(filePath, "utf-8").split(/\r?\n/).filter(Boolean);
-  const out: SmcEvent[] = [];
+  const out: any[] = [];
   for (const l of lines) {
     try { out.push(JSON.parse(l)); } catch {}
   }

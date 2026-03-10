@@ -47,6 +47,9 @@ cfg.eqThr = parseFloatArg("--eqThr", cfg.eqThr);
 cfg.ob = !has("--no-ob");
 cfg.obMitigation = (arg("--obMitigation") as any) ?? cfg.obMitigation;
 cfg.obMax = parseIntArg("--obMax", cfg.obMax);
+cfg.fvg.enabled = has("--fvg");
+cfg.fvg.autoThreshold = !has("--no-fvg-auto-threshold");
+cfg.fvg.extendBars = parseIntArg("--fvgExtendBars", cfg.fvg.extendBars);
 
 cfg.volatilityFilter.enabled = !has("--no-vol-filter");
 cfg.volatilityFilter.mult = parseFloatArg("--volMult", cfg.volatilityFilter.mult);
@@ -54,7 +57,6 @@ cfg.volatilityFilter.mult = parseFloatArg("--volMult", cfg.volatilityFilter.mult
 const bars = loadBarsFromCsv(inFile, { timeColumn: timecol, timeMode: "iso" });
 const events = runSmc(bars, cfg);
 
-// JSONL
 const lines = events.map(e => JSON.stringify(e)).join("\n") + "\n";
 fs.writeFileSync(outFile, lines, "utf-8");
 
