@@ -6,10 +6,6 @@ TypeScript implementation of **SMC structure primitives** (swing/internal pivots
 - TradingView Pine scripts are great for visualization but can hide confirmation delays / lookahead.
 - This project processes OHLCV bars **left-to-right only**, emitting events when they become knowable.
 
-> NOTE (license): The LuxAlgo script you referenced is CC BY-NC-SA 4.0.  
-> This repo is a clean-room re-implementation of concepts, not a copy/paste of their code.  
-> You must ensure your use complies with the original license and your distribution/commercial intent.
-
 ## Install
 ```bash
 npm i
