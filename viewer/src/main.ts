@@ -215,26 +215,34 @@ function parseTradeEventsJsonl(text: string): ViewerEvent[] {
 
 function parseSignalEventsJsonl(text: string): ViewerEvent[] {
   const lines = text.split(/\r?\n/).filter(Boolean);
-  const out: ViewerEvent[] = [];
+  const latestByBar = new Map<string, any>();
   for (const l of lines) {
     let parsed: any = null;
     try { parsed = JSON.parse(l); } catch { parsed = null; }
     if (!parsed || !parsed.last_closed_ts || typeof parsed.action !== 'number') continue;
+    latestByBar.set(String(parsed.last_closed_ts), parsed);
+  }
+
+  const out: ViewerEvent[] = [];
+  const entries = Array.from(latestByBar.entries()).sort((a,b) => Date.parse(a[0]) - Date.parse(b[0])).slice(-12);
+  for (const [, parsed] of entries) {
 
     const tsValue = Date.parse(String(parsed.last_closed_ts));
     if (!Number.isFinite(tsValue)) continue;
     const time = Math.floor(tsValue / 1000) as UTCTimestamp;
     const action = Number(parsed.action);
+    if (action === 0) continue;
+    if (action === 3 && !parsed.had_position_before) continue;
     const signalColor =
       action === 1 ? '#16a34a' :
       action === 2 ? '#dc2626' :
       action === 3 ? '#2563eb' :
       '#6b7280';
     const label =
-      action === 1 ? 'SIGNAL LONG' :
-      action === 2 ? 'SIGNAL SHORT' :
-      action === 3 ? 'SIGNAL EXIT' :
-      'SIGNAL HOLD';
+      action === 1 ? 'LONG' :
+      action === 2 ? 'SHORT' :
+      action === 3 ? 'EXIT' :
+      'HOLD';
 
     const reason = parsed.final_info?.context_summary ?? '';
     out.push({
@@ -243,7 +251,7 @@ function parseSignalEventsJsonl(text: string): ViewerEvent[] {
       position: action === 2 ? 'aboveBar' : 'belowBar',
       shape: action === 2 ? 'arrowDown' : action === 3 ? 'circle' : 'arrowUp',
       color: signalColor,
-      text: reason ? `${label} | ${reason}` : label,
+      text: reason ? `${label} | ${reason}`.slice(0, 40) : label,
     });
   }
   return out;
