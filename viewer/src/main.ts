@@ -49,6 +49,12 @@ let candles: Candle[] = [];
 let events: ViewerEvent[] = [];
 let tradeEvents: ViewerEvent[] = [];
 let rlTradeEvents: ViewerEvent[] = [];
+let liveMode = false;
+let liveTimer: number | null = null;
+const LIVE_CSV_URL = '/live/BTC_USDT_SWAP_15m.csv';
+const LIVE_EVENTS_URL = '/live/event_viewer.jsonl';
+const LIVE_TRADE_EVENTS_URL = '/live/trade_events.jsonl';
+const LIVE_SIGNALS_URL = '/live/signals.jsonl';
 
 function readFile(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -96,13 +102,82 @@ function parseJsonl(text: string): ViewerEvent[] {
   return out;
 }
 
+async function fetchTextOrEmpty(url: string): Promise<string> {
+  try {
+    const res = await fetch(url, { cache: 'no-store' });
+    if (!res.ok) return '';
+    return await res.text();
+  } catch {
+    return '';
+  }
+}
+
 function parseTradeEventsJsonl(text: string): ViewerEvent[] {
   const lines = text.split(/\r?\n/).filter(Boolean);
   const out: ViewerEvent[] = [];
   for (const l of lines) {
-    let trace: TradeTrace | null = null;
-    try { trace = JSON.parse(l); } catch { trace = null; }
-    if (!trace) continue;
+    let parsed: any = null;
+    try { parsed = JSON.parse(l); } catch { parsed = null; }
+    if (!parsed) continue;
+
+    // Support live trade event rows from run_okx_btc_swap_live.py
+    if (parsed.event && parsed.last_closed_ts) {
+      const event = parsed.event;
+      const tsValue = Date.parse(String(parsed.last_closed_ts));
+      if (Number.isFinite(tsValue)) {
+        const time = Math.floor(tsValue / 1000) as UTCTimestamp;
+        const side = String(event.side ?? '').toUpperCase();
+        const color = side === 'LONG' ? '#16a34a' : side === 'SHORT' ? '#dc2626' : '#2563eb';
+        const price = Number(parsed.price ?? 0);
+        if (event.type === 'open') {
+          out.push({
+            type:'MARKER',
+            time,
+            position: side === 'LONG' ? 'belowBar' : 'aboveBar',
+            shape: side === 'LONG' ? 'arrowUp' : 'arrowDown',
+            color,
+            text: `LIVE ${side} IN | ${parsed.smc_reason ?? event.reason ?? ''}`,
+          });
+          if (Number.isFinite(price) && price > 0) {
+            out.push({
+              type:'HSEG',
+              t0: time,
+              t1: time,
+              price,
+              color,
+              style:'solid',
+              text:`LIVE ${side} entry @ ${price}`,
+            });
+          }
+          continue;
+        }
+        if (event.type === 'close') {
+          const pnlPct = event.pnl_pct ? ` | ${Number(event.pnl_pct).toFixed(2)}%` : '';
+          out.push({
+            type:'MARKER',
+            time,
+            position: side === 'LONG' ? 'aboveBar' : 'belowBar',
+            shape:'circle',
+            color:'#2563eb',
+            text:`LIVE OUT:${event.reason ?? ''}${pnlPct}`,
+          });
+          if (Number.isFinite(price) && price > 0) {
+            out.push({
+              type:'HSEG',
+              t0: time,
+              t1: time,
+              price,
+              color:'#2563eb',
+              style:'dashed',
+              text:`LIVE exit @ ${price}${pnlPct}`,
+            });
+          }
+          continue;
+        }
+      }
+    }
+
+    let trace: TradeTrace | null = parsed as TradeTrace;
 
     for (const item of trace.chain) {
       const time = Math.floor(item.ts / 1000) as UTCTimestamp;
@@ -300,7 +375,36 @@ function render() {
   setStatus(`candles=${candles.length} events=${events.length} strategyTrace=${tradeEvents.length} rlTrades=${rlTradeEvents.length} markers=${markers.length}`);
 }
 
+async function refreshLive() {
+  const [csvText, eventsText, tradeText, signalsText] = await Promise.all([
+    fetchTextOrEmpty(LIVE_CSV_URL),
+    fetchTextOrEmpty(LIVE_EVENTS_URL),
+    fetchTextOrEmpty(LIVE_TRADE_EVENTS_URL),
+    fetchTextOrEmpty(LIVE_SIGNALS_URL),
+  ]);
+  if (csvText) candles = parseCsv(csvText);
+  if (eventsText) events = parseJsonl(eventsText);
+  tradeEvents = [];
+  if (tradeText) tradeEvents = parseTradeEventsJsonl(tradeText);
+  rlTradeEvents = [];
+  if (signalsText) rlTradeEvents = parseTradeEventsJsonl(signalsText);
+  render();
+}
+
+function startLiveMode() {
+  liveMode = true;
+  if (liveTimer !== null) window.clearInterval(liveTimer);
+  setStatus('Live mode: polling /live/... every 15s');
+  refreshLive();
+  liveTimer = window.setInterval(refreshLive, 15000);
+}
+
 ($('resetBtn') as HTMLButtonElement).addEventListener('click', ()=>{
+  if (liveTimer !== null) {
+    window.clearInterval(liveTimer);
+    liveTimer = null;
+  }
+  liveMode = false;
   candles = [];
   events = [];
   tradeEvents = [];
@@ -350,3 +454,5 @@ function render() {
 new ResizeObserver(()=> {
   chart.applyOptions({ width: chartEl.clientWidth, height: chartEl.clientHeight });
 }).observe(chartEl);
+
+startLiveMode();
