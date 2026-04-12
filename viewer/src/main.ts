@@ -178,6 +178,7 @@ function parseTradeEventsJsonl(text: string): ViewerEvent[] {
     }
 
     let trace: TradeTrace | null = parsed as TradeTrace;
+    if (!trace || !Array.isArray((trace as any).chain)) continue;
 
     for (const item of trace.chain) {
       const time = Math.floor(item.ts / 1000) as UTCTimestamp;
@@ -208,6 +209,42 @@ function parseTradeEventsJsonl(text: string): ViewerEvent[] {
         continue;
       }
     }
+  }
+  return out;
+}
+
+function parseSignalEventsJsonl(text: string): ViewerEvent[] {
+  const lines = text.split(/\r?\n/).filter(Boolean);
+  const out: ViewerEvent[] = [];
+  for (const l of lines) {
+    let parsed: any = null;
+    try { parsed = JSON.parse(l); } catch { parsed = null; }
+    if (!parsed || !parsed.last_closed_ts || typeof parsed.action !== 'number') continue;
+
+    const tsValue = Date.parse(String(parsed.last_closed_ts));
+    if (!Number.isFinite(tsValue)) continue;
+    const time = Math.floor(tsValue / 1000) as UTCTimestamp;
+    const action = Number(parsed.action);
+    const signalColor =
+      action === 1 ? '#16a34a' :
+      action === 2 ? '#dc2626' :
+      action === 3 ? '#2563eb' :
+      '#6b7280';
+    const label =
+      action === 1 ? 'SIGNAL LONG' :
+      action === 2 ? 'SIGNAL SHORT' :
+      action === 3 ? 'SIGNAL EXIT' :
+      'SIGNAL HOLD';
+
+    const reason = parsed.final_info?.context_summary ?? '';
+    out.push({
+      type:'MARKER',
+      time,
+      position: action === 2 ? 'aboveBar' : 'belowBar',
+      shape: action === 2 ? 'arrowDown' : action === 3 ? 'circle' : 'arrowUp',
+      color: signalColor,
+      text: reason ? `${label} | ${reason}` : label,
+    });
   }
   return out;
 }
@@ -387,7 +424,7 @@ async function refreshLive() {
   tradeEvents = [];
   if (tradeText) tradeEvents = parseTradeEventsJsonl(tradeText);
   rlTradeEvents = [];
-  if (signalsText) rlTradeEvents = parseTradeEventsJsonl(signalsText);
+  if (signalsText) rlTradeEvents = parseSignalEventsJsonl(signalsText);
   render();
 }
 
