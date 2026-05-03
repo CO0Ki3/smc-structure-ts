@@ -1,4 +1,5 @@
 node_modules
+dist/
 dataset_out/*
 viewer/public/live/*
 !viewer/public/live/.gitkeep
