@@ -24,6 +24,8 @@ function $(id: string): HTMLElement {
 }
 const statusEl = $('status');
 const chartEl = $('chart') as HTMLDivElement;
+const liveModeBtn = $('liveModeBtn') as HTMLButtonElement;
+const manualModeBtn = $('manualModeBtn') as HTMLButtonElement;
 
 function setStatus(msg: string){ statusEl.textContent = msg; }
 
@@ -444,12 +446,25 @@ function startLiveMode() {
   liveTimer = window.setInterval(refreshLive, 15000);
 }
 
-($('resetBtn') as HTMLButtonElement).addEventListener('click', ()=>{
+function stopLiveMode() {
   if (liveTimer !== null) {
     window.clearInterval(liveTimer);
     liveTimer = null;
   }
   liveMode = false;
+  setStatus('Manual mode: load files directly.');
+}
+
+liveModeBtn.addEventListener('click', () => {
+  startLiveMode();
+});
+
+manualModeBtn.addEventListener('click', () => {
+  stopLiveMode();
+});
+
+($('resetBtn') as HTMLButtonElement).addEventListener('click', ()=>{
+  stopLiveMode();
   candles = [];
   events = [];
   tradeEvents = [];
@@ -500,4 +515,4 @@ new ResizeObserver(()=> {
   chart.applyOptions({ width: chartEl.clientWidth, height: chartEl.clientHeight });
 }).observe(chartEl);
 
-startLiveMode();
+stopLiveMode();

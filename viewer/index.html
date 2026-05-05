@@ -21,6 +21,8 @@
   <div id="app">
     <header>
       <div class="row">
+        <button id="liveModeBtn">Live Mode</button>
+        <button id="manualModeBtn">Manual Mode</button>
         <span class="pill">1) CSV (15m OHLCV)</span>
         <input id="csvFile" type="file" accept=".csv,text/csv" />
         <span class="pill">2) event_viewer.jsonl</span>
@@ -31,7 +33,7 @@
         <input id="rlTradesFile" type="file" accept=".csv,text/csv" />
         <button id="resetBtn">Reset</button>
       </div>
-      <div class="hint">Load CSV, Pine-like event_viewer.jsonl, optional trade_events.jsonl, and optional RL evaluation trades csv (e.g. data9_trades.csv).</div>
+      <div class="hint">Manual Mode: load files yourself. Live Mode: auto-poll /live/... every 15s.</div>
     </header>
     <div id="chart"></div>
     <footer>
