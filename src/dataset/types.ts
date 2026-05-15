@@ -78,4 +78,21 @@ export type DatasetRow = {
   // Null when both swing pivots are not yet known or the range is
   // degenerate.
   distance_to_premium_discount: number | null;
+
+  // PDF chapter 9.6-7: stop-loss anchored at the LTF structural
+  // invalidation point (last_internal_low for long, last_internal_high
+  // for short) and take-profit at the next HTF opposing liquidity pool
+  // (last_swing_high for long, last_swing_low for short). All distances
+  // are ATR-normalised so the policy sees direction-agnostic
+  // magnitudes. Nulls propagate when the relevant pivot or ATR is
+  // missing OR when the candidate level is on the wrong side of the
+  // current close (e.g., last_internal_low above close → invalid long
+  // SL → null). rr_ratio = tp_distance / sl_distance; null when either
+  // leg is null or sl_distance is zero.
+  internal_sl_distance_long: number | null;
+  swing_tp_distance_long: number | null;
+  rr_ratio_long: number | null;
+  internal_sl_distance_short: number | null;
+  swing_tp_distance_short: number | null;
+  rr_ratio_short: number | null;
 };

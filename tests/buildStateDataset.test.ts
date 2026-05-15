@@ -104,3 +104,85 @@ test("distance_to_premium_discount can be < 0 or > 1 when price is outside the s
   const rows = buildStateDataset("ds", bars, events);
   assert.equal(rows.at(-1)!.distance_to_premium_discount, 2);
 });
+
+// --- PDF chapter 9.6-7: SL/TP distance + R:R features ---
+
+function bigBars(values: number[]): Bar[] {
+  // Build N bars enough to populate ATR; ATR uses simple TR averaging over 14 bars.
+  return values.map((c, i) => ({ ts: i, open: c, high: c + 0.5, low: c - 0.5, close: c, volume: 0 }));
+}
+
+test("internal_sl_distance_long is null when last_internal_low is missing", () => {
+  const bars = bigBars(Array.from({ length: 20 }, (_, i) => 100 + i * 0.1));
+  const rows = buildStateDataset("ds", bars, []);
+  assert.equal(rows.at(-1)!.internal_sl_distance_long, null);
+  assert.equal(rows.at(-1)!.swing_tp_distance_long, null);
+  assert.equal(rows.at(-1)!.rr_ratio_long, null);
+});
+
+test("internal_sl_distance_long = (close - last_internal_low) / atr; swing_tp_distance_long similarly", () => {
+  // Build 20 bars at price ~100 then a final bar at close=110; ATR will be small.
+  // Seed pivots so internal_low=95 (below close) and swing_high=130 (above close).
+  const bars = bigBars(Array.from({ length: 20 }, () => 100));
+  bars[19] = { ts: 19, open: 100, high: 100.5, low: 99.5, close: 110, volume: 0 };
+  const events: Ev[] = [
+    { type: "INTERNAL_PIVOT", pivotType: "LOW",  ts: 19, level: 95,  index: 19 },
+    { type: "SWING_PIVOT",    pivotType: "HIGH", ts: 19, level: 130, index: 19 },
+  ];
+  const last = buildStateDataset("ds", bars, events).at(-1)!;
+  const atr = last.atr_14 as number;
+  assert.ok(atr > 0, "ATR must be populated for this test");
+  assert.equal(last.internal_sl_distance_long, (110 - 95) / atr);
+  assert.equal(last.swing_tp_distance_long, (130 - 110) / atr);
+  assert.equal(last.rr_ratio_long, (130 - 110) / (110 - 95));
+});
+
+test("long SL/TP/RR null when invalidation level is on wrong side of close (e.g., internal_low above close)", () => {
+  const bars = bigBars(Array.from({ length: 20 }, () => 100));
+  const events: Ev[] = [
+    { type: "INTERNAL_PIVOT", pivotType: "LOW",  ts: 19, level: 105, index: 19 }, // above close 100 — invalid long SL
+    { type: "SWING_PIVOT",    pivotType: "HIGH", ts: 19, level: 130, index: 19 },
+  ];
+  const last = buildStateDataset("ds", bars, events).at(-1)!;
+  assert.equal(last.internal_sl_distance_long, null);
+  assert.equal(last.rr_ratio_long, null);
+  assert.notEqual(last.swing_tp_distance_long, null);
+});
+
+test("internal_sl_distance_short + swing_tp_distance_short + rr_ratio_short symmetric to long side", () => {
+  const bars = bigBars(Array.from({ length: 20 }, () => 100));
+  bars[19] = { ts: 19, open: 100, high: 100.5, low: 99.5, close: 90, volume: 0 };
+  const events: Ev[] = [
+    { type: "INTERNAL_PIVOT", pivotType: "HIGH", ts: 19, level: 105, index: 19 }, // above close 90 — valid short SL
+    { type: "SWING_PIVOT",    pivotType: "LOW",  ts: 19, level: 70,  index: 19 }, // below close 90 — valid short TP
+  ];
+  const last = buildStateDataset("ds", bars, events).at(-1)!;
+  const atr = last.atr_14 as number;
+  assert.ok(atr > 0);
+  assert.equal(last.internal_sl_distance_short, (105 - 90) / atr);
+  assert.equal(last.swing_tp_distance_short, (90 - 70) / atr);
+  assert.equal(last.rr_ratio_short, (90 - 70) / (105 - 90));
+});
+
+test("rr_ratio uses the same units; well-defined > 1 when TP further than SL", () => {
+  const bars = bigBars(Array.from({ length: 20 }, () => 100));
+  const events: Ev[] = [
+    { type: "INTERNAL_PIVOT", pivotType: "LOW",  ts: 19, level: 99,  index: 19 }, // close 100 - 99 = 1
+    { type: "SWING_PIVOT",    pivotType: "HIGH", ts: 19, level: 105, index: 19 }, // 105 - 100 = 5 → R:R = 5
+  ];
+  const last = buildStateDataset("ds", bars, events).at(-1)!;
+  assert.ok((last.rr_ratio_long as number) > 4.99 && (last.rr_ratio_long as number) < 5.01);
+});
+
+test("rr_ratio_long null when atr is null (no ATR window yet)", () => {
+  const bars = bigBars([100, 100, 100]); // too few bars for ATR
+  const events: Ev[] = [
+    { type: "INTERNAL_PIVOT", pivotType: "LOW",  ts: 2, level: 95,  index: 2 },
+    { type: "SWING_PIVOT",    pivotType: "HIGH", ts: 2, level: 130, index: 2 },
+  ];
+  const last = buildStateDataset("ds", bars, events).at(-1)!;
+  // atr_14 is null because we have < 15 bars
+  assert.equal(last.atr_14, null);
+  assert.equal(last.internal_sl_distance_long, null);
+  assert.equal(last.rr_ratio_long, null);
+});

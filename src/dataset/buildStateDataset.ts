@@ -261,6 +261,52 @@ export function buildStateDataset(datasetId: string, bars: Bar[], events: SmcEve
         if (!Number.isFinite(range) || range <= 0) return null;
         return (b.close - lastSwingLow.level) / range;
       })(),
+      ...((): {
+        internal_sl_distance_long: number | null;
+        swing_tp_distance_long: number | null;
+        rr_ratio_long: number | null;
+        internal_sl_distance_short: number | null;
+        swing_tp_distance_short: number | null;
+        rr_ratio_short: number | null;
+      } => {
+        const atrOk = atr14 !== null && Number.isFinite(atr14) && atr14 > 0;
+        const norm = (v: number) => (atrOk ? v / (atr14 as number) : null);
+
+        // Long-side: SL at last_internal_low (must be below close); TP at last_swing_high (must be above close).
+        const longSlRaw = lastInternalLow && lastInternalLow.level < b.close
+          ? b.close - lastInternalLow.level
+          : null;
+        const longTpRaw = lastSwingHigh && lastSwingHigh.level > b.close
+          ? lastSwingHigh.level - b.close
+          : null;
+        const longSl = longSlRaw !== null ? norm(longSlRaw) : null;
+        const longTp = longTpRaw !== null ? norm(longTpRaw) : null;
+        const rrLong = (longSl !== null && longTp !== null && longSl > 0)
+          ? longTp / longSl
+          : null;
+
+        // Short-side: SL at last_internal_high (must be above close); TP at last_swing_low (must be below close).
+        const shortSlRaw = lastInternalHigh && lastInternalHigh.level > b.close
+          ? lastInternalHigh.level - b.close
+          : null;
+        const shortTpRaw = lastSwingLow && lastSwingLow.level < b.close
+          ? b.close - lastSwingLow.level
+          : null;
+        const shortSl = shortSlRaw !== null ? norm(shortSlRaw) : null;
+        const shortTp = shortTpRaw !== null ? norm(shortTpRaw) : null;
+        const rrShort = (shortSl !== null && shortTp !== null && shortSl > 0)
+          ? shortTp / shortSl
+          : null;
+
+        return {
+          internal_sl_distance_long: longSl,
+          swing_tp_distance_long: longTp,
+          rr_ratio_long: rrLong,
+          internal_sl_distance_short: shortSl,
+          swing_tp_distance_short: shortTp,
+          rr_ratio_short: rrShort,
+        };
+      })(),
     });
   }
 
