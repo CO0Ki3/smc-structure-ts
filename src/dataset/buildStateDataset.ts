@@ -253,6 +253,14 @@ export function buildStateDataset(datasetId: string, bars: Bar[], events: SmcEve
       nearest_bearish_fvg_age: bearFvg ? (i - (idxByTs.get(bearFvg.createTs) ?? i)) : null,
       nearest_bearish_fvg_dist_mid_atr: bearFvgDistMid,
       inside_bearish_fvg: bearFvg ? ((b.low <= bearFvg.top && b.high >= bearFvg.bottom) ? 1 : 0) : 0,
+
+      structure_alignment: (swingBias !== 0 && internalBias !== 0 && swingBias === internalBias) ? 1 : 0,
+      distance_to_premium_discount: (() => {
+        if (!lastSwingHigh || !lastSwingLow) return null;
+        const range = lastSwingHigh.level - lastSwingLow.level;
+        if (!Number.isFinite(range) || range <= 0) return null;
+        return (b.close - lastSwingLow.level) / range;
+      })(),
     });
   }
 

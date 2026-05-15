@@ -67,4 +67,15 @@ export type DatasetRow = {
   nearest_bearish_fvg_age: number | null;
   nearest_bearish_fvg_dist_mid_atr: number | null;
   inside_bearish_fvg: number;
+
+  // PDF positive-trade context: swing & internal structure aligned in
+  // the same direction (1 = both bullish or both bearish, 0 otherwise).
+  structure_alignment: number;
+
+  // PDF premium/discount: where in the active swing range the current
+  // close sits, normalised 0..1 (0 = at last swing low = deepest
+  // discount; 1 = at last swing high = deepest premium; 0.5 = equilibrium).
+  // Null when both swing pivots are not yet known or the range is
+  // degenerate.
+  distance_to_premium_discount: number | null;
 };
