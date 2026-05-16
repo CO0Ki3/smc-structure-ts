@@ -4,6 +4,38 @@ import { resampleBars, buildLastClosedHtfIndex } from "../smc/htfResample.js";
 import { trackHtfState, premiumDiscount, type HtfSnapshot } from "../smc/htfFeatures.js";
 
 /**
+ * Option 5 helper: pre-compute HTF state for an entire LTF stream
+ * spanning multiple slices, then return per-LTF-ts lookup maps the
+ * caller hands to buildStateDataset for each individual slice. The
+ * returned `htf*IdxByLtfTs` maps include every LTF ts that fell in
+ * the input stream, so slice processing is a simple lookup.
+ */
+export function precomputeGlobalHtfContext(
+  ltfStream: Bar[],
+  htf4hMinutes: number = 240,
+  htf1dMinutes: number = 1440,
+): {
+  snapshots4h: HtfSnapshot[];
+  snapshots1d: HtfSnapshot[];
+  htf4hIdxByLtfTs: Map<number, number>;
+  htf1dIdxByLtfTs: Map<number, number>;
+} {
+  const htf4hBars = resampleBars(ltfStream, htf4hMinutes);
+  const htf1dBars = resampleBars(ltfStream, htf1dMinutes);
+  const snapshots4h = trackHtfState(htf4hBars);
+  const snapshots1d = trackHtfState(htf1dBars);
+  const htf4hIdx = buildLastClosedHtfIndex(ltfStream, htf4hBars, htf4hMinutes);
+  const htf1dIdx = buildLastClosedHtfIndex(ltfStream, htf1dBars, htf1dMinutes);
+  const htf4hIdxByLtfTs = new Map<number, number>();
+  const htf1dIdxByLtfTs = new Map<number, number>();
+  for (let i = 0; i < ltfStream.length; i++) {
+    htf4hIdxByLtfTs.set(ltfStream[i].ts, htf4hIdx[i]);
+    htf1dIdxByLtfTs.set(ltfStream[i].ts, htf1dIdx[i]);
+  }
+  return { snapshots4h, snapshots1d, htf4hIdxByLtfTs, htf1dIdxByLtfTs };
+}
+
+/**
  * Phase 1 (Stage C-1): HTF context attach options.
  *
  * `htf4hMinutes` and `htf1dMinutes` control the two HTF aggregation
@@ -19,12 +51,30 @@ import { trackHtfState, premiumDiscount, type HtfSnapshot } from "../smc/htfFeat
  *
  * `attachHtf` defaults to true. Setting false reverts to the pre-
  * Phase-1 schema (HTF columns get null/0 fill).
+ *
+ * `globalHtf` is the reviewer-driven Option 5 fix: when provided,
+ * HTF state is read from pre-computed maps keyed on LTF bar ts
+ * instead of being re-computed from this slice's bars. This lets a
+ * caller run trackHtfState on the entire 24-month BTC stream once
+ * (so 1D swing pivots stabilise — they need ~50 days lookback) and
+ * have each slice see the full-stream state at its timestamps.
+ * PDF SMC chapter 4 treats HTF context as a backward-looking
+ * function of all prior history — slice-resetting is an artifact
+ * of the per-slice pipeline, not the SMC definition. When supplied,
+ * `htf4hMinutes` / `htf1dMinutes` are ignored (the maps are already
+ * computed at the chosen TFs).
  */
 export type BuildStateDatasetOptions = {
   htf4hMinutes?: number;
   htf1dMinutes?: number;
   outputStartBar?: number;
   attachHtf?: boolean;
+  globalHtf?: {
+    snapshots4h: HtfSnapshot[];
+    snapshots1d: HtfSnapshot[];
+    htf4hIdxByLtfTs: Map<number, number>;
+    htf1dIdxByLtfTs: Map<number, number>;
+  };
 };
 
 type SmcEvent =
@@ -74,16 +124,30 @@ export function buildStateDataset(
   const htf1dMin = opts.htf1dMinutes ?? 1440;
   const outputStartBar = Math.max(0, opts.outputStartBar ?? 0);
   const attachHtf = opts.attachHtf !== false;
+  const globalHtf = opts.globalHtf;
 
-  // Pre-compute HTF context once per dataset. Empty arrays / -1
-  // sentinels are returned when bars is empty, so the lookups below
-  // are safe even on edge inputs.
-  const htf4hBars = attachHtf ? resampleBars(bars, htf4hMin) : [];
-  const htf1dBars = attachHtf ? resampleBars(bars, htf1dMin) : [];
-  const htf4hSnapshots: HtfSnapshot[] = attachHtf ? trackHtfState(htf4hBars) : [];
-  const htf1dSnapshots: HtfSnapshot[] = attachHtf ? trackHtfState(htf1dBars) : [];
-  const htf4hIdxForLtf = attachHtf ? buildLastClosedHtfIndex(bars, htf4hBars, htf4hMin) : [];
-  const htf1dIdxForLtf = attachHtf ? buildLastClosedHtfIndex(bars, htf1dBars, htf1dMin) : [];
+  // HTF context source:
+  // - Caller passed globalHtf (Option 5 reviewer fix) → use pre-
+  //   computed maps from the full multi-slice stream. This lets 1D
+  //   swing pivots stabilise — they need ~50 days lookback that no
+  //   single 28-day slice can provide.
+  // - Otherwise → compute slice-locally (legacy / backward-compatible).
+  const htf4hSnapshots: HtfSnapshot[] = attachHtf
+    ? (globalHtf ? globalHtf.snapshots4h : trackHtfState(resampleBars(bars, htf4hMin)))
+    : [];
+  const htf1dSnapshots: HtfSnapshot[] = attachHtf
+    ? (globalHtf ? globalHtf.snapshots1d : trackHtfState(resampleBars(bars, htf1dMin)))
+    : [];
+  const htf4hIdxForLtf: number[] = attachHtf
+    ? (globalHtf
+        ? bars.map(b => globalHtf.htf4hIdxByLtfTs.get(b.ts) ?? -1)
+        : buildLastClosedHtfIndex(bars, resampleBars(bars, htf4hMin), htf4hMin))
+    : [];
+  const htf1dIdxForLtf: number[] = attachHtf
+    ? (globalHtf
+        ? bars.map(b => globalHtf.htf1dIdxByLtfTs.get(b.ts) ?? -1)
+        : buildLastClosedHtfIndex(bars, resampleBars(bars, htf1dMin), htf1dMin))
+    : [];
 
   const evByTs = new Map<number, SmcEvent[]>();
   for (const e of events) {

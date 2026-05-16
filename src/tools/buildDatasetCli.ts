@@ -3,7 +3,7 @@ import path from "node:path";
 import { loadBarsFromCsv } from "../io/loadCsv.js";
 import type { Bar } from "../io/types.js";
 import type { DatasetRow } from "../dataset/types.js";
-import { buildStateDataset } from "../dataset/buildStateDataset.js";
+import { buildStateDataset, precomputeGlobalHtfContext } from "../dataset/buildStateDataset.js";
 
 function arg(name: string): string | undefined {
   const i = process.argv.indexOf(name);
@@ -78,6 +78,7 @@ const outputStartBar = (() => {
   return n;
 })();
 const noHtf = process.argv.includes("--no-htf");
+const globalHtfFlag = process.argv.includes("--globalHtf");
 
 fs.mkdirSync(outDir, { recursive: true });
 
@@ -90,34 +91,59 @@ if (dirs.length === 0) {
 const allRows: DatasetRow[] = [];
 const summary: Array<{ dataset_id: string; rows: number; start_ts: number; end_ts: number }> = [];
 
+// Phase 1 / Option 5: when --globalHtf is set, gather every slice's
+// bars into a single timestamp-sorted stream and run trackHtfState
+// once. This is what production trading does — 1D pivot is a
+// function of all prior history, not "the most recent 28 days".
+// Without it, 1D pivots never stabilise inside a single 28-day
+// slice (swing detection needs ~50 days lookback).
+type LoadedSlice = { dir: string; datasetId: string; bars: Bar[]; events: any[] };
+const loaded: LoadedSlice[] = [];
 for (const dir of dirs) {
   const datasetId = datasetIdFromDir(dir);
   const barsPath = path.join(dir, barsName);
   const eventsPath = path.join(dir, eventsName);
-
   if (!fs.existsSync(barsPath) || !fs.existsSync(eventsPath)) {
     console.warn(`skip ${datasetId}: missing ${barsName} or ${eventsName}`);
     continue;
   }
-
   const bars = loadBarsFromCsv(barsPath, { timeColumn: timecol, timeMode: "iso" }) as Bar[];
   const events = readEventsJsonl(eventsPath);
+  loaded.push({ dir, datasetId, bars, events });
+}
 
+let globalCtx: ReturnType<typeof precomputeGlobalHtfContext> | undefined;
+if (globalHtfFlag && !noHtf) {
+  // Merge + dedupe by ts (overlapping slices share bars by design).
+  const tsSeen = new Set<number>();
+  const stream: Bar[] = [];
+  for (const s of loaded) {
+    for (const b of s.bars) {
+      if (tsSeen.has(b.ts)) continue;
+      tsSeen.add(b.ts);
+      stream.push(b);
+    }
+  }
+  stream.sort((a, b) => a.ts - b.ts);
+  console.log(`[globalHtf] merged ${stream.length} unique LTF bars across ${loaded.length} slices`);
+  globalCtx = precomputeGlobalHtfContext(stream);
+  console.log(`[globalHtf] 4H snapshots=${globalCtx.snapshots4h.length}, 1D snapshots=${globalCtx.snapshots1d.length}`);
+}
+
+for (const { datasetId, bars, events } of loaded) {
   const rows = buildStateDataset(datasetId, bars, events, {
     outputStartBar,
     attachHtf: !noHtf,
+    globalHtf: globalCtx,
   });
   if (rows.length === 0) {
     console.warn(`skip ${datasetId}: no rows`);
     continue;
   }
-
   const perDir = path.join(outDir, datasetId);
   fs.mkdirSync(perDir, { recursive: true });
-
   writeCsv(path.join(perDir, "state_dataset.csv"), rows);
   writeJsonl(path.join(perDir, "state_dataset.jsonl"), rows);
-
   allRows.push(...rows);
   summary.push({
     dataset_id: datasetId,
@@ -125,7 +151,6 @@ for (const dir of dirs) {
     start_ts: rows[0].ts,
     end_ts: rows[rows.length - 1].ts,
   });
-
   console.log(`dataset=${datasetId} rows=${rows.length} wrote=${perDir}`);
 }
 
