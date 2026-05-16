@@ -95,4 +95,25 @@ export type DatasetRow = {
   internal_sl_distance_short: number | null;
   swing_tp_distance_short: number | null;
   rr_ratio_short: number | null;
+
+  // Phase 1 / Stage C-1: HTF (4H + 1D) context. Each LTF row carries
+  // the SMC state of the *last closed* HTF candle as of that ts —
+  // the in-progress HTF candle is excluded to avoid lookahead. Nulls
+  // appear during the HTF warmup window (first ~50 HTF bars need to
+  // pass before swing pivots stabilise). All HTF distances are
+  // ATR-normalised by the LTF ATR_14, matching how LTF features are
+  // already scaled — keeps the policy seeing a single magnitude
+  // language across timeframes.
+  htf_4h_swing_bias: number;
+  htf_4h_internal_bias: number;
+  htf_4h_bars_since_swing_break: number | null;
+  htf_4h_bars_since_internal_break: number | null;
+  htf_4h_premium_discount: number | null;
+  htf_4h_dist_to_swing_high_atr: number | null;
+  htf_4h_dist_to_swing_low_atr: number | null;
+
+  htf_1d_swing_bias: number;
+  htf_1d_internal_bias: number;
+  htf_1d_bars_since_swing_break: number | null;
+  htf_1d_premium_discount: number | null;
 };

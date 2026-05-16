@@ -219,6 +219,89 @@ test("B-18: rr_ratio_long clamped to [0.5, 10] when raw ratio is out of range", 
   assert.equal(last.rr_ratio_long, 10);
 });
 
+// --- Phase 1 / Stage C-1: HTF feature attach + outputStartBar prefix ---
+
+const MIN_15 = 15 * 60_000;
+
+function realtimeBars(count: number, startTs: number, priceFn: (i: number) => number): Bar[] {
+  const out: Bar[] = [];
+  for (let i = 0; i < count; i++) {
+    const c = priceFn(i);
+    out.push({ ts: startTs + i * MIN_15, open: c, high: c + 0.5, low: c - 0.5, close: c, volume: 1 });
+  }
+  return out;
+}
+
+test("Phase 1: HTF columns default null/0 when bars < first HTF candle", () => {
+  // Only 4 LTF (15m) bars — first 4H HTF candle (16 bars) hasn't closed.
+  const bars = realtimeBars(4, 1764547200000, i => 100 + i);
+  const rows = buildStateDataset("ds", bars, []);
+  const last = rows.at(-1)!;
+  assert.equal(last.htf_4h_swing_bias, 0);
+  assert.equal(last.htf_4h_bars_since_swing_break, null);
+  assert.equal(last.htf_4h_premium_discount, null);
+  assert.equal(last.htf_1d_swing_bias, 0);
+});
+
+test("Phase 1: HTF schema columns exist on every row", () => {
+  const bars = realtimeBars(20, 1764547200000, i => 100 + i);
+  const rows = buildStateDataset("ds", bars, []);
+  for (const r of rows) {
+    assert.ok("htf_4h_swing_bias" in r);
+    assert.ok("htf_4h_internal_bias" in r);
+    assert.ok("htf_4h_premium_discount" in r);
+    assert.ok("htf_4h_dist_to_swing_high_atr" in r);
+    assert.ok("htf_1d_swing_bias" in r);
+    assert.ok("htf_1d_premium_discount" in r);
+  }
+});
+
+test("Phase 1: outputStartBar trims first N rows from output", () => {
+  // 50 LTF bars, skip first 16 (one 4H window) → 34 rows out.
+  const bars = realtimeBars(50, 1764547200000, i => 100 + i);
+  const rows = buildStateDataset("ds", bars, [], { outputStartBar: 16 });
+  assert.equal(rows.length, 50 - 16);
+  // First emitted row's ts is the 17th LTF bar's ts.
+  assert.equal(rows[0].ts, bars[16].ts);
+});
+
+test("Phase 1: attachHtf=false keeps schema but leaves HTF cols at default", () => {
+  const bars = realtimeBars(20, 1764547200000, i => 100 + i);
+  const rows = buildStateDataset("ds", bars, [], { attachHtf: false });
+  const last = rows.at(-1)!;
+  assert.equal(last.htf_4h_swing_bias, 0);
+  assert.equal(last.htf_4h_premium_discount, null);
+});
+
+test("Phase 1: HTF bars_since_swing_break null until first 4H bar closes", () => {
+  // Before the first 4H candle closes (need 16 LTF bars to pass), all
+  // HTF lookups must return defaults. Verifies the lookahead guard.
+  const bars = realtimeBars(15, 1764547200000, i => 100 + i);
+  const rows = buildStateDataset("ds", bars, []);
+  for (const r of rows) {
+    assert.equal(r.htf_4h_bars_since_swing_break, null);
+    assert.equal(r.htf_4h_swing_bias, 0);
+  }
+});
+
+test("Phase 1: HTF lookups switch from null to populated after 4H candle closes", () => {
+  // 32 LTF bars span 2 × 4H candles. From bar 16 onward the first
+  // 4H bar has closed → htf_4h_bars_since_swing_break could now be
+  // non-null (but only if SMC engine declared a swing — usually no
+  // for monotonic ramps). At minimum, bias is still 0 and the
+  // bars_since field stays null until SMC fires STRUCTURE_BREAK on
+  // the 4H stream. The test asserts the schema invariant: bias is
+  // an integer in {-1, 0, 1} and bars_since is null OR non-negative.
+  const bars = realtimeBars(32, 1764547200000, i => 100 + i);
+  const rows = buildStateDataset("ds", bars, []);
+  for (const r of rows) {
+    assert.ok([1, 0, -1].includes(r.htf_4h_swing_bias));
+    assert.ok(
+      r.htf_4h_bars_since_swing_break === null || r.htf_4h_bars_since_swing_break >= 0,
+    );
+  }
+});
+
 test("B-18: rr_ratio_short invalidate + clamp symmetric to long side", () => {
   const bars = bigBars(Array.from({ length: 20 }, () => 100));
   bars[19] = { ts: 19, open: 100, high: 100.5, low: 99.5, close: 100, volume: 0 };

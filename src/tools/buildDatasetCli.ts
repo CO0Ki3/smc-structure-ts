@@ -62,6 +62,23 @@ const barsName = arg("--bars") ?? "bars.csv";
 const eventsName = arg("--events") ?? "events.jsonl";
 const timecol = arg("--timecol") ?? "ts";
 
+// Phase 1 / Stage C-1: optional HTF feature attach + warmup prefix
+// skip. Defaults preserve the pre-C-1 behaviour (no skip, HTF
+// columns still attach with full-row context) so existing callers
+// keep working. Set --no-htf to drop the HTF columns entirely
+// (smaller schema for ablation runs).
+const outputStartBar = (() => {
+  const v = arg("--outputStartBar");
+  if (!v) return 0;
+  const n = Number(v);
+  if (!Number.isInteger(n) || n < 0) {
+    console.error(`--outputStartBar must be a non-negative integer (got "${v}")`);
+    process.exit(1);
+  }
+  return n;
+})();
+const noHtf = process.argv.includes("--no-htf");
+
 fs.mkdirSync(outDir, { recursive: true });
 
 const dirs = findDatasetDirs(datasetRoot);
@@ -86,7 +103,10 @@ for (const dir of dirs) {
   const bars = loadBarsFromCsv(barsPath, { timeColumn: timecol, timeMode: "iso" }) as Bar[];
   const events = readEventsJsonl(eventsPath);
 
-  const rows = buildStateDataset(datasetId, bars, events);
+  const rows = buildStateDataset(datasetId, bars, events, {
+    outputStartBar,
+    attachHtf: !noHtf,
+  });
   if (rows.length === 0) {
     console.warn(`skip ${datasetId}: no rows`);
     continue;

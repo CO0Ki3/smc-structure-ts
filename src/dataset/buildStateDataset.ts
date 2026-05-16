@@ -1,5 +1,31 @@
 import type { Bar } from "../io/types.js";
 import type { DatasetRow } from "./types.js";
+import { resampleBars, buildLastClosedHtfIndex } from "../smc/htfResample.js";
+import { trackHtfState, premiumDiscount, type HtfSnapshot } from "../smc/htfFeatures.js";
+
+/**
+ * Phase 1 (Stage C-1): HTF context attach options.
+ *
+ * `htf4hMinutes` and `htf1dMinutes` control the two HTF aggregation
+ * windows the policy will see — defaults 240 (4H) and 1440 (1D)
+ * match PDF SMC chapter 4 multi-timeframe analysis.
+ *
+ * `outputStartBar` skips the first N LTF rows from the output —
+ * the SMC engine still scans them so swing/internal/HTF state warm
+ * up correctly, but the model only sees rows from bar N onward.
+ * Phase 1 uses 768 (8 days × 96 bars/day for the HTF 4H pivot
+ * lookback) when the source slice is 28 days long; 0 keeps the
+ * legacy behaviour. When omitted, no rows are skipped.
+ *
+ * `attachHtf` defaults to true. Setting false reverts to the pre-
+ * Phase-1 schema (HTF columns get null/0 fill).
+ */
+export type BuildStateDatasetOptions = {
+  htf4hMinutes?: number;
+  htf1dMinutes?: number;
+  outputStartBar?: number;
+  attachHtf?: boolean;
+};
 
 type SmcEvent =
   | { type: "SWING_PIVOT"; pivotType: "HIGH" | "LOW"; ts: number; level: number; index: number }
@@ -38,7 +64,27 @@ function safeDiv(num: number, den: number | null): number | null {
   return num / den;
 }
 
-export function buildStateDataset(datasetId: string, bars: Bar[], events: SmcEvent[]): DatasetRow[] {
+export function buildStateDataset(
+  datasetId: string,
+  bars: Bar[],
+  events: SmcEvent[],
+  opts: BuildStateDatasetOptions = {},
+): DatasetRow[] {
+  const htf4hMin = opts.htf4hMinutes ?? 240;
+  const htf1dMin = opts.htf1dMinutes ?? 1440;
+  const outputStartBar = Math.max(0, opts.outputStartBar ?? 0);
+  const attachHtf = opts.attachHtf !== false;
+
+  // Pre-compute HTF context once per dataset. Empty arrays / -1
+  // sentinels are returned when bars is empty, so the lookups below
+  // are safe even on edge inputs.
+  const htf4hBars = attachHtf ? resampleBars(bars, htf4hMin) : [];
+  const htf1dBars = attachHtf ? resampleBars(bars, htf1dMin) : [];
+  const htf4hSnapshots: HtfSnapshot[] = attachHtf ? trackHtfState(htf4hBars) : [];
+  const htf1dSnapshots: HtfSnapshot[] = attachHtf ? trackHtfState(htf1dBars) : [];
+  const htf4hIdxForLtf = attachHtf ? buildLastClosedHtfIndex(bars, htf4hBars, htf4hMin) : [];
+  const htf1dIdxForLtf = attachHtf ? buildLastClosedHtfIndex(bars, htf1dBars, htf1dMin) : [];
+
   const evByTs = new Map<number, SmcEvent[]>();
   for (const e of events) {
     const arr = evByTs.get(e.ts) ?? [];
@@ -184,6 +230,21 @@ export function buildStateDataset(datasetId: string, bars: Bar[], events: SmcEve
     const bullFvgDistMid = bullFvg ? safeDiv(Math.abs(((bullFvg.top + bullFvg.bottom) / 2) - b.close), atr14) : null;
     const bearFvgDistMid = bearFvg ? safeDiv(Math.abs(((bearFvg.top + bearFvg.bottom) / 2) - b.close), atr14) : null;
 
+    // Skip prefix rows that exist only so HTF + ATR can warm up.
+    if (i < outputStartBar) continue;
+
+    // Look up the HTF state as of the *last closed* HTF bar at this
+    // LTF ts (in-progress HTF candle is intentionally excluded).
+    const htf4hIdx = attachHtf ? (htf4hIdxForLtf[i] ?? -1) : -1;
+    const htf1dIdx = attachHtf ? (htf1dIdxForLtf[i] ?? -1) : -1;
+    const htf4hSnap = htf4hIdx >= 0 ? htf4hSnapshots[htf4hIdx] : null;
+    const htf1dSnap = htf1dIdx >= 0 ? htf1dSnapshots[htf1dIdx] : null;
+
+    const htf4hDistSwingHigh = htf4hSnap?.lastSwingHigh != null
+      ? safeDiv(htf4hSnap.lastSwingHigh - b.close, atr14) : null;
+    const htf4hDistSwingLow = htf4hSnap?.lastSwingLow != null
+      ? safeDiv(b.close - htf4hSnap.lastSwingLow, atr14) : null;
+
     rows.push({
       dataset_id: datasetId,
       ts: b.ts,
@@ -312,6 +373,19 @@ export function buildStateDataset(datasetId: string, bars: Bar[], events: SmcEve
           rr_ratio_short: rrShort,
         };
       })(),
+
+      htf_4h_swing_bias: htf4hSnap?.swingBias ?? 0,
+      htf_4h_internal_bias: htf4hSnap?.internalBias ?? 0,
+      htf_4h_bars_since_swing_break: htf4hSnap?.barsSinceSwingBreak ?? null,
+      htf_4h_bars_since_internal_break: htf4hSnap?.barsSinceInternalBreak ?? null,
+      htf_4h_premium_discount: htf4hSnap !== null ? premiumDiscount(b.close, htf4hSnap) : null,
+      htf_4h_dist_to_swing_high_atr: htf4hDistSwingHigh,
+      htf_4h_dist_to_swing_low_atr: htf4hDistSwingLow,
+
+      htf_1d_swing_bias: htf1dSnap?.swingBias ?? 0,
+      htf_1d_internal_bias: htf1dSnap?.internalBias ?? 0,
+      htf_1d_bars_since_swing_break: htf1dSnap?.barsSinceSwingBreak ?? null,
+      htf_1d_premium_discount: htf1dSnap !== null ? premiumDiscount(b.close, htf1dSnap) : null,
     });
   }
 
