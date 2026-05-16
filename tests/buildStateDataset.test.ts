@@ -186,3 +186,58 @@ test("rr_ratio_long null when atr is null (no ATR window yet)", () => {
   assert.equal(last.internal_sl_distance_long, null);
   assert.equal(last.rr_ratio_long, null);
 });
+
+// Stage B-18: degenerate-swing guard. Without it rr_ratio explodes
+// (production data saw max 10397) and silently passes the PDF β1
+// R:R >= 1.5 rule. SL distance < 0.3 × ATR → invalidate (null).
+test("B-18: rr_ratio_long invalidated when internal_sl_distance < 0.3 ATR (degenerate swing)", () => {
+  const bars = bigBars(Array.from({ length: 20 }, () => 100));
+  const events: Ev[] = [
+    // internal_low just below close, SL distance ≈ 0.01 (way under 0.3 ATR).
+    { type: "INTERNAL_PIVOT", pivotType: "LOW",  ts: 19, level: 99.99, index: 19 },
+    { type: "SWING_PIVOT",    pivotType: "HIGH", ts: 19, level: 130,   index: 19 },
+  ];
+  const last = buildStateDataset("ds", bars, events).at(-1)!;
+  const atr = last.atr_14 as number;
+  assert.ok(atr > 0);
+  // SL distance in ATR units = 0.01 / atr; we need this < 0.3.
+  assert.ok((0.01 / atr) < 0.3, "test fixture must have SL distance < 0.3 ATR");
+  assert.equal(last.rr_ratio_long, null);
+});
+
+test("B-18: rr_ratio_long clamped to [0.5, 10] when raw ratio is out of range", () => {
+  const bars = bigBars(Array.from({ length: 20 }, () => 100));
+  // SL distance = 5 (close=100, internal_low=95), TP distance = 200 → raw rr=40.
+  // SL/atr should be >= 0.3 so the invalidate gate does NOT fire.
+  const events: Ev[] = [
+    { type: "INTERNAL_PIVOT", pivotType: "LOW",  ts: 19, level: 95,  index: 19 },
+    { type: "SWING_PIVOT",    pivotType: "HIGH", ts: 19, level: 300, index: 19 },
+  ];
+  const last = buildStateDataset("ds", bars, events).at(-1)!;
+  const atr = last.atr_14 as number;
+  assert.ok((5 / atr) >= 0.3, "SL distance must clear the 0.3 ATR invalidate gate");
+  assert.equal(last.rr_ratio_long, 10);
+});
+
+test("B-18: rr_ratio_short invalidate + clamp symmetric to long side", () => {
+  const bars = bigBars(Array.from({ length: 20 }, () => 100));
+  bars[19] = { ts: 19, open: 100, high: 100.5, low: 99.5, close: 100, volume: 0 };
+  // Degenerate: internal_high just above close → SL distance tiny.
+  const evDegenerate: Ev[] = [
+    { type: "INTERNAL_PIVOT", pivotType: "HIGH", ts: 19, level: 100.01, index: 19 },
+    { type: "SWING_PIVOT",    pivotType: "LOW",  ts: 19, level: 70,     index: 19 },
+  ];
+  assert.equal(
+    buildStateDataset("ds", bars, evDegenerate).at(-1)!.rr_ratio_short,
+    null,
+  );
+  // Out-of-range: SL distance 5, TP distance 80 → raw 16 → clamp 10.
+  const evHigh: Ev[] = [
+    { type: "INTERNAL_PIVOT", pivotType: "HIGH", ts: 19, level: 105, index: 19 },
+    { type: "SWING_PIVOT",    pivotType: "LOW",  ts: 19, level: 20,  index: 19 },
+  ];
+  assert.equal(
+    buildStateDataset("ds", bars, evHigh).at(-1)!.rr_ratio_short,
+    10,
+  );
+});

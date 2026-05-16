@@ -281,8 +281,13 @@ export function buildStateDataset(datasetId: string, bars: Bar[], events: SmcEve
           : null;
         const longSl = longSlRaw !== null ? norm(longSlRaw) : null;
         const longTp = longTpRaw !== null ? norm(longTpRaw) : null;
-        const rrLong = (longSl !== null && longTp !== null && longSl > 0)
-          ? longTp / longSl
+        // Stage B-18: invalidate rr_ratio when the structural SL is
+        // closer than 0.3 × ATR (degenerate swing pivot stuck on the
+        // current wick) — without the gate rr_ratio explodes to
+        // 10000+ and silently passes the PDF β1 R:R >= 1.5 rule.
+        // After the gate, clamp to [0.5, 10] as a sanity fallback.
+        const rrLong = (longSl !== null && longTp !== null && longSl >= 0.3)
+          ? Math.max(0.5, Math.min(10, longTp / longSl))
           : null;
 
         // Short-side: SL at last_internal_high (must be above close); TP at last_swing_low (must be below close).
@@ -294,8 +299,8 @@ export function buildStateDataset(datasetId: string, bars: Bar[], events: SmcEve
           : null;
         const shortSl = shortSlRaw !== null ? norm(shortSlRaw) : null;
         const shortTp = shortTpRaw !== null ? norm(shortTpRaw) : null;
-        const rrShort = (shortSl !== null && shortTp !== null && shortSl > 0)
-          ? shortTp / shortSl
+        const rrShort = (shortSl !== null && shortTp !== null && shortSl >= 0.3)
+          ? Math.max(0.5, Math.min(10, shortTp / shortSl))
           : null;
 
         return {
