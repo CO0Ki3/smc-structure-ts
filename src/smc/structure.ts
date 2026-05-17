@@ -71,6 +71,16 @@ export class SmcStructure {
   private updatePivots(bar: Bar, index: number, atrForEq: number | null): SmcEvent[] {
     const ev: SmcEvent[] = [];
 
+    // CRITICAL fix (post Stage K leakage discovery): swing/internal/EQ
+    // pivots are confirmed only AFTER swingSize bars of forward
+    // confirmation have elapsed. Events used to be attached at
+    // this.times[j] (the swing's occurrence ts), which let
+    // buildStateDataset's evByTs lookup leak future information into
+    // bar j onwards. Now the event ts is this.times[index] (the
+    // detection bar — when this pivot is actually known in real time),
+    // while `index` and the stored level still reference the
+    // occurrence bar so downstream code can compute distances and
+    // bars-since-break correctly.
     const swingSize = this.cfg.swingLen;
     const swingLeg = legFromBars(this.highs, this.lows, index, swingSize);
     if (startOfNewLeg(this.prevSwingLeg, swingLeg)) {
@@ -78,12 +88,12 @@ export class SmcStructure {
         const j = index - swingSize;
         const level = this.lows[j];
         updatePivot(this.state.swingLow, level, this.times[j], j);
-        ev.push({ type: "SWING_PIVOT", pivotType: "LOW", ts: this.times[j], level, index: j });
+        ev.push({ type: "SWING_PIVOT", pivotType: "LOW", ts: this.times[index], level, index: j });
       } else if (startOfBearishLeg(this.prevSwingLeg, swingLeg)) {
         const j = index - swingSize;
         const level = this.highs[j];
         updatePivot(this.state.swingHigh, level, this.times[j], j);
-        ev.push({ type: "SWING_PIVOT", pivotType: "HIGH", ts: this.times[j], level, index: j });
+        ev.push({ type: "SWING_PIVOT", pivotType: "HIGH", ts: this.times[index], level, index: j });
       }
     }
     this.prevSwingLeg = swingLeg;
@@ -95,12 +105,12 @@ export class SmcStructure {
         const j = index - internalSize;
         const level = this.lows[j];
         updatePivot(this.state.internalLow, level, this.times[j], j);
-        ev.push({ type: "INTERNAL_PIVOT", pivotType: "LOW", ts: this.times[j], level, index: j });
+        ev.push({ type: "INTERNAL_PIVOT", pivotType: "LOW", ts: this.times[index], level, index: j });
       } else if (startOfBearishLeg(this.prevInternalLeg, internalLeg)) {
         const j = index - internalSize;
         const level = this.highs[j];
         updatePivot(this.state.internalHigh, level, this.times[j], j);
-        ev.push({ type: "INTERNAL_PIVOT", pivotType: "HIGH", ts: this.times[j], level, index: j });
+        ev.push({ type: "INTERNAL_PIVOT", pivotType: "HIGH", ts: this.times[index], level, index: j });
       }
     }
     this.prevInternalLeg = internalLeg;
@@ -112,12 +122,12 @@ export class SmcStructure {
       if (j >= 0) {
         if (startOfBullishLeg(this.prevEqLeg, eqLeg)) {
           const level = this.lows[j];
-          const eq = tryEqualHighLow(this.state.equalLow, level, false, eqSize, this.times[j], atrForEq, this.cfg.eqThr);
+          const eq = tryEqualHighLow(this.state.equalLow, level, false, eqSize, this.times[index], atrForEq, this.cfg.eqThr);
           updatePivot(this.state.equalLow, level, this.times[j], j);
           if (eq) ev.push(eq);
         } else if (startOfBearishLeg(this.prevEqLeg, eqLeg)) {
           const level = this.highs[j];
-          const eq = tryEqualHighLow(this.state.equalHigh, level, true, eqSize, this.times[j], atrForEq, this.cfg.eqThr);
+          const eq = tryEqualHighLow(this.state.equalHigh, level, true, eqSize, this.times[index], atrForEq, this.cfg.eqThr);
           updatePivot(this.state.equalHigh, level, this.times[j], j);
           if (eq) ev.push(eq);
         }
