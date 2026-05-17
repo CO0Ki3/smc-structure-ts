@@ -141,4 +141,27 @@ export type DatasetRow = {
   sweep_bearish_event: number;
   sweep_with_choch_bullish: number;
   sweep_with_choch_bearish: number;
+
+  // Stage L (Volume profile): six backward-looking volume features.
+  // OHLCV-only (no bid/ask), so candle-level proxy for "what big
+  // money did this bar". All lookahead-safe — uses bars up to and
+  // including the current one.
+  //
+  //   volume_z_score_50: (volume - mean_50) / std_50. Volume regime.
+  //   volume_spike_flag: 1 if volume > 3 × mean_50. Whale activity.
+  //   buy_pressure_ratio: (close - low) / (high - low). 1 = full-bull,
+  //     0 = full-bear. Candle-shape proxy for net pressure.
+  //   vwap_distance_atr: (close - vwap_20) / atr_14. Deviation from
+  //     20-bar VWAP, ATR-normalized. Institutional mean-price proxy.
+  //   obv_slope_20: 20-bar slope of On-Balance Volume, normalized.
+  //     Trend confirmation.
+  //   cumulative_delta_proxy_20: sum over last 20 bars of
+  //     ((close - mid) / range) × volume. Approximation of net
+  //     buying volume without bid/ask breakdown.
+  volume_z_score_50: number | null;
+  volume_spike_flag: number;
+  buy_pressure_ratio: number | null;
+  vwap_distance_atr: number | null;
+  obv_slope_20: number | null;
+  cumulative_delta_proxy_20: number | null;
 };

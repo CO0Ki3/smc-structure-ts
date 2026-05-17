@@ -189,6 +189,15 @@ export function buildStateDataset(
   let lastChochBullishIdx: number | null = null;
   let lastChochBearishIdx: number | null = null;
 
+  // Stage L (Volume profile) state. Rolling windows are all backward-
+  // looking — include the current bar but no future bars.
+  const VOL_Z_WINDOW = 50;
+  const VWAP_WINDOW = 20;
+  const OBV_SLOPE_WINDOW = 20;
+  const DELTA_WINDOW = 20;
+  let obvCumulative = 0; // On-Balance Volume running total
+  const obvHistory: number[] = [];
+
   const activeObs = new Map<number, ActiveOB>();
   const activeFvgs = new Map<number, ActiveFVG>();
 
@@ -352,6 +361,79 @@ export function buildStateDataset(
     const sweepWithChochBearish =
       inWindow(lastSweepBearishIdx) && inWindow(lastChochBearishIdx) ? 1 : 0;
 
+    // Stage L volume features. All windows include bar i but no
+    // future bars — lookahead-safe.
+    let volumeZScore50: number | null = null;
+    let volumeSpikeFlag = 0;
+    let buyPressureRatio: number | null = null;
+    let vwapDistanceAtr: number | null = null;
+    let cumulativeDeltaProxy20: number | null = null;
+
+    if (i >= VOL_Z_WINDOW - 1) {
+      let sumV = 0;
+      for (let k = i - VOL_Z_WINDOW + 1; k <= i; k++) sumV += bars[k].volume;
+      const meanV = sumV / VOL_Z_WINDOW;
+      let varV = 0;
+      for (let k = i - VOL_Z_WINDOW + 1; k <= i; k++) {
+        const d = bars[k].volume - meanV;
+        varV += d * d;
+      }
+      const stdV = Math.sqrt(varV / VOL_Z_WINDOW);
+      volumeZScore50 = stdV > 0 ? (b.volume - meanV) / stdV : 0;
+      if (meanV > 0 && b.volume > 3 * meanV) volumeSpikeFlag = 1;
+    }
+
+    const range = b.high - b.low;
+    if (range > 0) buyPressureRatio = (b.close - b.low) / range;
+
+    if (i >= VWAP_WINDOW - 1 && atr14 !== null && atr14 > 0) {
+      let pvSum = 0;
+      let vSum = 0;
+      for (let k = i - VWAP_WINDOW + 1; k <= i; k++) {
+        const mid = (bars[k].high + bars[k].low + bars[k].close) / 3;
+        pvSum += mid * bars[k].volume;
+        vSum += bars[k].volume;
+      }
+      if (vSum > 0) {
+        const vwap = pvSum / vSum;
+        vwapDistanceAtr = (b.close - vwap) / atr14;
+      }
+    }
+
+    // OBV update: cumulative directional volume.
+    if (i > 0) {
+      if (b.close > bars[i - 1].close) obvCumulative += b.volume;
+      else if (b.close < bars[i - 1].close) obvCumulative -= b.volume;
+    }
+    obvHistory.push(obvCumulative);
+    let obvSlope20: number | null = null;
+    if (obvHistory.length >= OBV_SLOPE_WINDOW) {
+      // Simple slope: (obv_now - obv_20_ago) / 20, normalized by mean volume
+      // over the same window to make it scale-invariant.
+      const past = obvHistory[obvHistory.length - OBV_SLOPE_WINDOW];
+      const slope = (obvCumulative - past) / OBV_SLOPE_WINDOW;
+      let meanVolWindow = 0;
+      for (let k = i - OBV_SLOPE_WINDOW + 1; k <= i; k++) meanVolWindow += bars[k].volume;
+      meanVolWindow /= OBV_SLOPE_WINDOW;
+      obvSlope20 = meanVolWindow > 0 ? slope / meanVolWindow : 0;
+    }
+
+    if (i >= DELTA_WINDOW - 1) {
+      let delta = 0;
+      for (let k = i - DELTA_WINDOW + 1; k <= i; k++) {
+        const r = bars[k].high - bars[k].low;
+        if (r > 0) {
+          const mid = (bars[k].high + bars[k].low) / 2;
+          delta += ((bars[k].close - mid) / r) * bars[k].volume;
+        }
+      }
+      // Normalize by mean volume × window so scale invariant.
+      let meanVolDelta = 0;
+      for (let k = i - DELTA_WINDOW + 1; k <= i; k++) meanVolDelta += bars[k].volume;
+      meanVolDelta /= DELTA_WINDOW;
+      cumulativeDeltaProxy20 = meanVolDelta > 0 ? delta / (meanVolDelta * DELTA_WINDOW) : 0;
+    }
+
     // Skip prefix rows that exist only so HTF + ATR can warm up.
     if (i < outputStartBar) continue;
 
@@ -513,6 +595,13 @@ export function buildStateDataset(
       sweep_bearish_event: sweepBearishEvent,
       sweep_with_choch_bullish: sweepWithChochBullish,
       sweep_with_choch_bearish: sweepWithChochBearish,
+
+      volume_z_score_50: volumeZScore50,
+      volume_spike_flag: volumeSpikeFlag,
+      buy_pressure_ratio: buyPressureRatio,
+      vwap_distance_atr: vwapDistanceAtr,
+      obv_slope_20: obvSlope20,
+      cumulative_delta_proxy_20: cumulativeDeltaProxy20,
     });
   }
 
