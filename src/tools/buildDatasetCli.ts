@@ -79,6 +79,22 @@ const outputStartBar = (() => {
 })();
 const noHtf = process.argv.includes("--no-htf");
 const globalHtfFlag = process.argv.includes("--globalHtf");
+// Phase J (4H SMC): allow overriding the HTF aggregation minutes from
+// the CLI. Defaults stay at 4H (240) and 1D (1440) for the 15m phase.
+// For 4H input streams, the natural override is 1D (1440) and 1W
+// (10080) so the policy sees one-step-up + two-steps-up context.
+const htf4hMinutesArg = arg("--htf4hMinutes");
+const htf1dMinutesArg = arg("--htf1dMinutes");
+const htf4hMinutes = htf4hMinutesArg ? Number(htf4hMinutesArg) : 240;
+const htf1dMinutes = htf1dMinutesArg ? Number(htf1dMinutesArg) : 1440;
+if (!Number.isFinite(htf4hMinutes) || htf4hMinutes <= 0) {
+  console.error(`--htf4hMinutes must be a positive number (got "${htf4hMinutesArg}")`);
+  process.exit(1);
+}
+if (!Number.isFinite(htf1dMinutes) || htf1dMinutes <= 0) {
+  console.error(`--htf1dMinutes must be a positive number (got "${htf1dMinutesArg}")`);
+  process.exit(1);
+}
 
 fs.mkdirSync(outDir, { recursive: true });
 
@@ -126,12 +142,14 @@ if (globalHtfFlag && !noHtf) {
   }
   stream.sort((a, b) => a.ts - b.ts);
   console.log(`[globalHtf] merged ${stream.length} unique LTF bars across ${loaded.length} slices`);
-  globalCtx = precomputeGlobalHtfContext(stream);
-  console.log(`[globalHtf] 4H snapshots=${globalCtx.snapshots4h.length}, 1D snapshots=${globalCtx.snapshots1d.length}`);
+  globalCtx = precomputeGlobalHtfContext(stream, htf4hMinutes, htf1dMinutes);
+  console.log(`[globalHtf] HTF1 (${htf4hMinutes}min) snapshots=${globalCtx.snapshots4h.length}, HTF2 (${htf1dMinutes}min) snapshots=${globalCtx.snapshots1d.length}`);
 }
 
 for (const { datasetId, bars, events } of loaded) {
   const rows = buildStateDataset(datasetId, bars, events, {
+    htf4hMinutes,
+    htf1dMinutes,
     outputStartBar,
     attachHtf: !noHtf,
     globalHtf: globalCtx,
