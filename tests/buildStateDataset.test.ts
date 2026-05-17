@@ -302,6 +302,89 @@ test("Phase 1: HTF lookups switch from null to populated after 4H candle closes"
   }
 });
 
+// --- Stage I: liquidity sweep features ---
+
+test("Stage I: sweep_bullish_event fires when low pierces swing low and close back above", () => {
+  // 20 bars to build ATR + a swing low pivot at index 19 (level 95)
+  const bars = bigBars(Array.from({ length: 20 }, () => 100));
+  // Mark bar 19 as the swing low event (so by bar 20 it's "last")
+  // Actually we want a swing low present BEFORE the sweep bar — use a bigBars
+  // with the pivot on bar 18, and bar 19 sweeps it.
+  bars[19] = { ts: 19, open: 100, high: 100.5, low: 94, close: 96, volume: 0 };
+  const events: Ev[] = [
+    // Place swing low at bar 18 so bar 19 sees lastSwingLow = 95
+    { type: "SWING_PIVOT", pivotType: "LOW", ts: 18, level: 95, index: 18 },
+  ];
+  // Replicated through buildStateDataset: bar 19 low=94 < 95 < close=96 → sweep
+  const last = buildStateDataset("ds", bars, events).at(-1)!;
+  assert.equal(last.sweep_bullish_event, 1);
+  assert.equal(last.sweep_bearish_event, 0);
+});
+
+test("Stage I: sweep_bearish_event fires when high pierces swing high and close back below", () => {
+  const bars = bigBars(Array.from({ length: 20 }, () => 100));
+  bars[19] = { ts: 19, open: 100, high: 106, low: 99.5, close: 104, volume: 0 };
+  const events: Ev[] = [
+    { type: "SWING_PIVOT", pivotType: "HIGH", ts: 18, level: 105, index: 18 },
+  ];
+  // bar 19 high=106 > 105 > close=104 → bearish sweep
+  const last = buildStateDataset("ds", bars, events).at(-1)!;
+  assert.equal(last.sweep_bearish_event, 1);
+  assert.equal(last.sweep_bullish_event, 0);
+});
+
+test("Stage I: no sweep when close ends beyond the level (genuine break, not stab)", () => {
+  // bar 19 low=94 AND close=93 — price broke through and stayed below.
+  // This is a real BoS, NOT a sweep. Should not flag.
+  const bars = bigBars(Array.from({ length: 20 }, () => 100));
+  bars[19] = { ts: 19, open: 100, high: 100.5, low: 94, close: 93, volume: 0 };
+  const events: Ev[] = [
+    { type: "SWING_PIVOT", pivotType: "LOW", ts: 18, level: 95, index: 18 },
+  ];
+  const last = buildStateDataset("ds", bars, events).at(-1)!;
+  assert.equal(last.sweep_bullish_event, 0);
+});
+
+test("Stage I: sweep_with_choch_bullish requires CHoCH within 5 bars of sweep", () => {
+  // bars 0-15: warmup; bar 17: swing low pivot at 95; bar 18: bullish sweep
+  // (low=94, close=96); bar 19: bullish CHoCH event. Both within 5 bars.
+  const bars = bigBars(Array.from({ length: 25 }, () => 100));
+  bars[18] = { ts: 18, open: 100, high: 100.5, low: 94, close: 96, volume: 0 };
+  const events: Ev[] = [
+    { type: "SWING_PIVOT", pivotType: "LOW", ts: 17, level: 95, index: 17 },
+    { type: "STRUCTURE_BREAK", scope: "INTERNAL", tag: "CHOCH", dir: 1, ts: 19, level: 100 },
+  ];
+  const rows = buildStateDataset("ds", bars, events);
+  // bar 19 (index 19): sweep on 18, CHoCH on 19 → both within window
+  assert.equal(rows[19].sweep_with_choch_bullish, 1);
+});
+
+test("Stage I: sweep_with_choch_bullish does not fire when CHoCH is too far past", () => {
+  // sweep on bar 5, CHoCH on bar 15 — gap 10, exceeds window 5.
+  const bars = bigBars(Array.from({ length: 25 }, () => 100));
+  bars[5] = { ts: 5, open: 100, high: 100.5, low: 94, close: 96, volume: 0 };
+  const events: Ev[] = [
+    { type: "SWING_PIVOT", pivotType: "LOW", ts: 4, level: 95, index: 4 },
+    { type: "STRUCTURE_BREAK", scope: "INTERNAL", tag: "CHOCH", dir: 1, ts: 15, level: 100 },
+  ];
+  const rows = buildStateDataset("ds", bars, events);
+  // at bar 15: sweep was 10 bars ago (out of window 5) → no signal
+  assert.equal(rows[15].sweep_with_choch_bullish, 0);
+});
+
+test("Stage I: BOS does not count as CHoCH for sweep_with_choch", () => {
+  // BoS-tagged STRUCTURE_BREAK should not satisfy the choch-confirmation gate
+  const bars = bigBars(Array.from({ length: 25 }, () => 100));
+  bars[18] = { ts: 18, open: 100, high: 100.5, low: 94, close: 96, volume: 0 };
+  const events: Ev[] = [
+    { type: "SWING_PIVOT", pivotType: "LOW", ts: 17, level: 95, index: 17 },
+    // BoS, not CHOCH
+    { type: "STRUCTURE_BREAK", scope: "INTERNAL", tag: "BOS", dir: 1, ts: 19, level: 100 },
+  ];
+  const rows = buildStateDataset("ds", bars, events);
+  assert.equal(rows[19].sweep_with_choch_bullish, 0);
+});
+
 test("B-18: rr_ratio_short invalidate + clamp symmetric to long side", () => {
   const bars = bigBars(Array.from({ length: 20 }, () => 100));
   bars[19] = { ts: 19, open: 100, high: 100.5, low: 99.5, close: 100, volume: 0 };

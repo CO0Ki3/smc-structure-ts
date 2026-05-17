@@ -179,6 +179,16 @@ export function buildStateDataset(
   let eqh: { level: number; ts: number } | null = null;
   let eql: { level: number; ts: number } | null = null;
 
+  // Stage I (liquidity sweep) tracking. We record the bar index of
+  // the most recent bullish/bearish sweep and the most recent same-
+  // direction CHoCH; sweep_with_choch_* fires when both happened
+  // within the SWEEP_CHOCH_WINDOW (5 bars).
+  const SWEEP_CHOCH_WINDOW = 5;
+  let lastSweepBullishIdx: number | null = null;
+  let lastSweepBearishIdx: number | null = null;
+  let lastChochBullishIdx: number | null = null;
+  let lastChochBearishIdx: number | null = null;
+
   const activeObs = new Map<number, ActiveOB>();
   const activeFvgs = new Map<number, ActiveFVG>();
 
@@ -206,6 +216,13 @@ export function buildStateDataset(
           internalBias = e.dir;
           internalBreakTag = e.tag;
           internalBreakTs = e.ts;
+        }
+        // Stage I: track CHoCH events for sweep-with-choch confirmation.
+        // Either scope (SWING or INTERNAL) counts; LTF is what we feed
+        // the policy.
+        if (e.tag === "CHOCH") {
+          if (e.dir === 1) lastChochBullishIdx = i;
+          else if (e.dir === -1) lastChochBearishIdx = i;
         }
       }
       if (e.type === "EQ") {
@@ -293,6 +310,47 @@ export function buildStateDataset(
     const bearFvg = pickNearestFvg(bearishFvgs);
     const bullFvgDistMid = bullFvg ? safeDiv(Math.abs(((bullFvg.top + bullFvg.bottom) / 2) - b.close), atr14) : null;
     const bearFvgDistMid = bearFvg ? safeDiv(Math.abs(((bearFvg.top + bearFvg.bottom) / 2) - b.close), atr14) : null;
+
+    // Stage I sweep detection. Uses the swing/internal/EQ levels as
+    // they stand AFTER this bar's events have been applied — pivots
+    // confirmed on prior bars; this bar's wick + close determine if a
+    // sweep occurred. Either side of the swing/internal/EQ stack
+    // triggers (binary; Stage I.2 may split EQH/EQL from swing).
+    const bullishSweepLevels: Array<number | null> = [
+      lastSwingLow?.level ?? null,
+      lastInternalLow?.level ?? null,
+      eql?.level ?? null,
+    ];
+    const bearishSweepLevels: Array<number | null> = [
+      lastSwingHigh?.level ?? null,
+      lastInternalHigh?.level ?? null,
+      eqh?.level ?? null,
+    ];
+    let sweepBullishEvent = 0;
+    for (const lvl of bullishSweepLevels) {
+      if (lvl !== null && b.low < lvl && b.close > lvl) {
+        sweepBullishEvent = 1;
+        break;
+      }
+    }
+    let sweepBearishEvent = 0;
+    for (const lvl of bearishSweepLevels) {
+      if (lvl !== null && b.high > lvl && b.close < lvl) {
+        sweepBearishEvent = 1;
+        break;
+      }
+    }
+    if (sweepBullishEvent) lastSweepBullishIdx = i;
+    if (sweepBearishEvent) lastSweepBearishIdx = i;
+
+    // sweep_with_choch: 1 when a same-direction sweep + CHoCH both
+    // fell within the last SWEEP_CHOCH_WINDOW bars.
+    const inWindow = (idx: number | null) =>
+      idx !== null && (i - idx) <= SWEEP_CHOCH_WINDOW && (i - idx) >= 0;
+    const sweepWithChochBullish =
+      inWindow(lastSweepBullishIdx) && inWindow(lastChochBullishIdx) ? 1 : 0;
+    const sweepWithChochBearish =
+      inWindow(lastSweepBearishIdx) && inWindow(lastChochBearishIdx) ? 1 : 0;
 
     // Skip prefix rows that exist only so HTF + ATR can warm up.
     if (i < outputStartBar) continue;
@@ -450,6 +508,11 @@ export function buildStateDataset(
       htf_1d_internal_bias: htf1dSnap?.internalBias ?? 0,
       htf_1d_bars_since_swing_break: htf1dSnap?.barsSinceSwingBreak ?? null,
       htf_1d_premium_discount: htf1dSnap !== null ? premiumDiscount(b.close, htf1dSnap) : null,
+
+      sweep_bullish_event: sweepBullishEvent,
+      sweep_bearish_event: sweepBearishEvent,
+      sweep_with_choch_bullish: sweepWithChochBullish,
+      sweep_with_choch_bearish: sweepWithChochBearish,
     });
   }
 

@@ -116,4 +116,29 @@ export type DatasetRow = {
   htf_1d_internal_bias: number;
   htf_1d_bars_since_swing_break: number | null;
   htf_1d_premium_discount: number | null;
+
+  // Stage I (SMC reframe): liquidity-sweep signals. PDF treats every
+  // entry as "structure-aligned", but the actual SMC entry trigger is
+  // a sweep — price punches through a recent swing high/low (or EQH/
+  // EQL) to trip retail stops and reverses back inside. Sweep + a
+  // follow-up LTF CHoCH is the high-probability entry pattern.
+  //
+  // Reviewer-capped to 4 core features for incremental rollout (the
+  // 8-feature draft included bars_since_sweep / sweep_at_eqh|eql,
+  // moved to Stage I.2 if I.1 shows train-metric lift).
+  //
+  //   sweep_bullish_event: this bar's low < last_swing_low (or
+  //     internal_low / EQL) AND this bar's close > the same level —
+  //     price stabbed below sell-side liquidity and recovered. LONG
+  //     opportunity signal.
+  //   sweep_bearish_event: mirror condition for buy-side liquidity →
+  //     SHORT opportunity.
+  //   sweep_with_choch_bullish: 1 when a bullish sweep is followed by
+  //     a bullish LTF CHoCH within 5 bars. The "graduated" sweep —
+  //     high-probability LONG entry pattern in SMC.
+  //   sweep_with_choch_bearish: mirror for SHORT.
+  sweep_bullish_event: number;
+  sweep_bearish_event: number;
+  sweep_with_choch_bullish: number;
+  sweep_with_choch_bearish: number;
 };
