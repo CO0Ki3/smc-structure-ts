@@ -26,8 +26,20 @@ const statusEl = $('status');
 const chartEl = $('chart') as HTMLDivElement;
 const liveModeBtn = $('liveModeBtn') as HTMLButtonElement;
 const manualModeBtn = $('manualModeBtn') as HTMLButtonElement;
+const symbolSelect = $('symbolSelect') as HTMLSelectElement;
 
 function setStatus(msg: string){ statusEl.textContent = msg; }
+
+async function loadSymbolList() {
+  try {
+    const res = await fetch('/live/symbols.json', { cache: 'no-store' });
+    if (!res.ok) return;
+    const symbols: string[] = await res.json();
+    symbolSelect.innerHTML = symbols.map(s =>
+      `<option value="${s}">${s.replace(/_USDT_USDT_/, '/USDT:USDT ').replace(/_(\d+)$/, ' $1m')}</option>`
+    ).join('');
+  } catch {}
+}
 
 const chart = createChart(chartEl, {
   layout: { background: { color: '#ffffff' }, textColor: '#111827' },
@@ -53,10 +65,16 @@ let tradeEvents: ViewerEvent[] = [];
 let rlTradeEvents: ViewerEvent[] = [];
 let liveMode = false;
 let liveTimer: number | null = null;
-const LIVE_CSV_URL = '/live/BTC_USDT_SWAP_15m.csv';
-const LIVE_EVENTS_URL = '/live/event_viewer.jsonl';
-const LIVE_TRADE_EVENTS_URL = '/live/trade_events.jsonl';
-const LIVE_SIGNALS_URL = '/live/signals.jsonl';
+
+function liveUrls() {
+  const sym = symbolSelect.value || 'BTC_USDT_USDT_15';
+  return {
+    csv:     `/live/${sym}_bars.csv`,
+    events:  `/live/${sym}_events.jsonl`,
+    trades:  `/live/${sym}_trades.jsonl`,
+    signals: `/live/signals.jsonl`,
+  };
+}
 
 function readFile(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -389,6 +407,8 @@ function render() {
   }));
   markersApi.setMarkers(markers);
 
+  const lastCandleTime: UTCTimestamp = candles.length ? candles[candles.length - 1].time : 0 as UTCTimestamp;
+
   clearSegments();
   for (const e of allEvents) {
     if (e.type === 'HSEG') {
@@ -397,22 +417,26 @@ function render() {
         style === 'dashed' ? LineStyle.Dashed :
         style === 'dotted' ? LineStyle.Dotted :
         LineStyle.Solid;
+      // extend to right edge when t0===t1 (point event → horizontal ray)
+      const t1 = e.t1 > e.t0 ? e.t1 : (lastCandleTime > e.t0 ? lastCandleTime : (e.t0 + 900) as UTCTimestamp);
 
       const s = chart.addSeries(LineSeries, { color: e.color, lineWidth: 1, lineStyle });
-      s.setData([{ time: e.t0, value: e.price }, { time: e.t1, value: e.price }]);
+      s.setData([{ time: e.t0, value: e.price }, { time: t1, value: e.price }]);
       segSeries.push(s);
       continue;
     }
     if (e.type === 'RANGE_SEG') {
       const style = e.style ?? 'dotted';
       const lineStyle = style === 'solid' ? LineStyle.Solid : LineStyle.Dotted;
+      // extend FVG/single-point ranges to right edge
+      const t1 = e.t1 > e.t0 ? e.t1 : (lastCandleTime > e.t0 ? lastCandleTime : (e.t0 + 900) as UTCTimestamp);
 
       const s1 = chart.addSeries(LineSeries, { color: e.color, lineWidth: 1, lineStyle });
-      s1.setData([{ time: e.t0, value: e.high }, { time: e.t1, value: e.high }]);
+      s1.setData([{ time: e.t0, value: e.high }, { time: t1, value: e.high }]);
       segSeries.push(s1);
 
       const s2 = chart.addSeries(LineSeries, { color: e.color, lineWidth: 1, lineStyle });
-      s2.setData([{ time: e.t0, value: e.low }, { time: e.t1, value: e.low }]);
+      s2.setData([{ time: e.t0, value: e.low }, { time: t1, value: e.low }]);
       segSeries.push(s2);
       continue;
     }
@@ -423,11 +447,12 @@ function render() {
 }
 
 async function refreshLive() {
+  const urls = liveUrls();
   const [csvText, eventsText, tradeText, signalsText] = await Promise.all([
-    fetchTextOrEmpty(LIVE_CSV_URL),
-    fetchTextOrEmpty(LIVE_EVENTS_URL),
-    fetchTextOrEmpty(LIVE_TRADE_EVENTS_URL),
-    fetchTextOrEmpty(LIVE_SIGNALS_URL),
+    fetchTextOrEmpty(urls.csv),
+    fetchTextOrEmpty(urls.events),
+    fetchTextOrEmpty(urls.trades),
+    fetchTextOrEmpty(urls.signals),
   ]);
   if (csvText) candles = parseCsv(csvText);
   if (eventsText) events = parseJsonl(eventsText);
@@ -441,7 +466,8 @@ async function refreshLive() {
 function startLiveMode() {
   liveMode = true;
   if (liveTimer !== null) window.clearInterval(liveTimer);
-  setStatus('Live mode: polling /live/... every 15s');
+  const sym = symbolSelect.value || '?';
+  setStatus(`Live mode: ${sym} — 15초마다 갱신 중`);
   refreshLive();
   liveTimer = window.setInterval(refreshLive, 15000);
 }
@@ -502,17 +528,15 @@ manualModeBtn.addEventListener('click', () => {
   render();
 });
 
-($('rlTradesFile') as HTMLInputElement).addEventListener('change', async ()=>{
-  const f = ($('rlTradesFile') as HTMLInputElement).files?.[0];
-  if (!f) return;
-  setStatus('Loading RL trades csv...');
-  const text = await readFile(f);
-  rlTradeEvents = parseRlTradesCsv(text);
-  render();
-});
 
 new ResizeObserver(()=> {
   chart.applyOptions({ width: chartEl.clientWidth, height: chartEl.clientHeight });
 }).observe(chartEl);
 
-stopLiveMode();
+// 심볼 변경 시 라이브 모드면 재갱신
+symbolSelect.addEventListener('change', () => {
+  if (liveMode) refreshLive();
+});
+
+// 초기 심볼 목록 로드 후 라이브 모드 준비
+loadSymbolList().then(() => stopLiveMode());

@@ -21,19 +21,23 @@
   <div id="app">
     <header>
       <div class="row">
-        <button id="liveModeBtn">Live Mode</button>
+        <button id="liveModeBtn">▶ Live Mode</button>
         <button id="manualModeBtn">Manual Mode</button>
-        <span class="pill">1) CSV (15m OHLCV)</span>
-        <input id="csvFile" type="file" accept=".csv,text/csv" />
-        <span class="pill">2) event_viewer.jsonl</span>
-        <input id="evFile" type="file" accept=".jsonl,application/json,text/plain" />
-        <span class="pill">3) trade_events.jsonl</span>
-        <input id="tradeFile" type="file" accept=".jsonl,application/json,text/plain" />
-        <span class="pill">4) RL trades csv</span>
-        <input id="rlTradesFile" type="file" accept=".csv,text/csv" />
+        <label style="font-size:12px;font-weight:600">심볼:</label>
+        <select id="symbolSelect" style="font-size:12px;padding:5px 8px;border-radius:8px;border:1px solid #e5e7eb">
+          <option value="">-- 로딩 중 --</option>
+        </select>
         <button id="resetBtn">Reset</button>
       </div>
-      <div class="hint">Manual Mode: load files yourself. Live Mode: auto-poll /live/... every 15s.</div>
+      <div class="row" style="margin-top:4px">
+        <span class="pill">수동 CSV</span>
+        <input id="csvFile" type="file" accept=".csv,text/csv" />
+        <span class="pill">event_viewer.jsonl</span>
+        <input id="evFile" type="file" accept=".jsonl,application/json,text/plain" />
+        <span class="pill">trade_events.jsonl</span>
+        <input id="tradeFile" type="file" accept=".jsonl,application/json,text/plain" />
+      </div>
+      <div class="hint">Live Mode: 심볼 선택 후 자동 갱신 (15초). Manual Mode: 파일 직접 로드.</div>
     </header>
     <div id="chart"></div>
     <footer>
