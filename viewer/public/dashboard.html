@@ -1,0 +1,639 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>SMC Paper Trading Dashboard</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js"></script>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg: #0f1117;
+      --card: #1a1d27;
+      --border: #2a2d3a;
+      --text: #e2e8f0;
+      --muted: #64748b;
+      --green: #22c55e;
+      --red: #ef4444;
+      --blue: #3b82f6;
+      --green-bg: rgba(34, 197, 94, 0.08);
+      --red-bg: rgba(239, 68, 68, 0.08);
+    }
+
+    html, body {
+      height: 100%;
+      background: var(--bg);
+      color: var(--text);
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      font-size: 14px;
+      line-height: 1.5;
+    }
+
+    body {
+      min-height: 100vh;
+      padding: 0 0 40px;
+    }
+
+    /* ── Header ─────────────────────────────────────────── */
+    header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 16px 24px;
+      background: var(--card);
+      border-bottom: 1px solid var(--border);
+      position: sticky;
+      top: 0;
+      z-index: 100;
+      gap: 12px;
+      flex-wrap: wrap;
+    }
+
+    .header-left {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+    }
+
+    .back-link {
+      color: var(--blue);
+      text-decoration: none;
+      font-size: 13px;
+      opacity: 0.85;
+      white-space: nowrap;
+      transition: opacity 0.15s;
+    }
+    .back-link:hover { opacity: 1; }
+
+    header h1 {
+      font-size: 17px;
+      font-weight: 700;
+      letter-spacing: -0.3px;
+      color: var(--text);
+      white-space: nowrap;
+    }
+
+    .header-right {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 13px;
+      color: var(--muted);
+      white-space: nowrap;
+    }
+
+    .live-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--muted);
+      flex-shrink: 0;
+      transition: background 0.3s;
+    }
+    .live-dot.fresh {
+      background: var(--green);
+      animation: pulse 2s ease-in-out infinite;
+    }
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50%       { opacity: 0.35; }
+    }
+
+    .live-label {
+      font-weight: 600;
+      font-size: 12px;
+      letter-spacing: 0.05em;
+      color: var(--muted);
+      transition: color 0.3s;
+    }
+    .live-label.fresh { color: var(--green); }
+
+    /* ── Main layout ─────────────────────────────────────── */
+    main {
+      max-width: 1280px;
+      margin: 0 auto;
+      padding: 24px 20px 0;
+      display: flex;
+      flex-direction: column;
+      gap: 20px;
+    }
+
+    /* ── Loading state ────────────────────────────────────── */
+    #loading-msg {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      height: 300px;
+      font-size: 16px;
+      color: var(--muted);
+      letter-spacing: 0.02em;
+    }
+
+    #dashboard-content { display: none; flex-direction: column; gap: 20px; }
+    #dashboard-content.visible { display: flex; }
+
+    /* ── Stat cards ───────────────────────────────────────── */
+    .stat-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 14px;
+    }
+
+    @media (max-width: 640px) {
+      .stat-grid { grid-template-columns: repeat(2, 1fr); }
+    }
+    @media (max-width: 400px) {
+      .stat-grid { grid-template-columns: 1fr; }
+    }
+
+    .stat-card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 18px 20px;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+
+    .stat-label {
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      color: var(--muted);
+    }
+
+    .stat-value {
+      font-size: 26px;
+      font-weight: 700;
+      line-height: 1.1;
+      letter-spacing: -0.5px;
+      color: var(--text);
+    }
+
+    .stat-sub {
+      font-size: 12px;
+      color: var(--muted);
+      margin-top: 2px;
+    }
+
+    .positive { color: var(--green); }
+    .negative { color: var(--red); }
+    .neutral  { color: var(--blue); }
+
+    /* ── Chart ────────────────────────────────────────────── */
+    .chart-card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 18px 20px;
+    }
+
+    .section-title {
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--muted);
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+      margin-bottom: 14px;
+    }
+
+    .chart-wrap {
+      position: relative;
+      height: 200px;
+    }
+
+    /* ── Two-column panel ─────────────────────────────────── */
+    .panels {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 14px;
+    }
+    @media (max-width: 800px) {
+      .panels { grid-template-columns: 1fr; }
+    }
+
+    .panel-card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 18px 20px;
+      overflow: hidden;
+    }
+
+    /* ── Tables ────────────────────────────────────────────── */
+    .table-wrap {
+      overflow-x: auto;
+      margin: 0 -4px;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 13px;
+      white-space: nowrap;
+    }
+
+    thead th {
+      text-align: left;
+      padding: 6px 8px;
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: 0.05em;
+      text-transform: uppercase;
+      color: var(--muted);
+      border-bottom: 1px solid var(--border);
+    }
+
+    tbody td {
+      padding: 9px 8px;
+      border-bottom: 1px solid rgba(255,255,255,0.04);
+      vertical-align: middle;
+    }
+
+    tbody tr:last-child td { border-bottom: none; }
+
+    tbody tr:hover { background: rgba(255,255,255,0.03); }
+
+    tr.tp-row { background: var(--green-bg); }
+    tr.sl-row { background: var(--red-bg); }
+    tr.tp-row:hover { background: rgba(34, 197, 94, 0.13); }
+    tr.sl-row:hover { background: rgba(239, 68, 68, 0.13); }
+
+    .badge {
+      display: inline-block;
+      padding: 2px 7px;
+      border-radius: 99px;
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: 0.04em;
+    }
+
+    .badge-long  { background: rgba(34, 197, 94, 0.18); color: var(--green); }
+    .badge-short { background: rgba(239, 68, 68, 0.18); color: var(--red); }
+    .badge-tp    { background: rgba(34, 197, 94, 0.18); color: var(--green); }
+    .badge-sl    { background: rgba(239, 68, 68, 0.18); color: var(--red); }
+
+    .empty-row td {
+      text-align: center;
+      padding: 24px 8px;
+      color: var(--muted);
+      font-style: italic;
+    }
+
+    /* ── Footer ────────────────────────────────────────────── */
+    footer {
+      text-align: center;
+      padding: 32px 0 0;
+      font-size: 12px;
+      color: var(--muted);
+      letter-spacing: 0.03em;
+    }
+  </style>
+</head>
+<body>
+
+<header>
+  <div class="header-left">
+    <a class="back-link" href="/">&#8592; Viewer</a>
+    <h1>SMC Paper Trading Dashboard</h1>
+  </div>
+  <div class="header-right">
+    <span class="live-dot" id="live-dot"></span>
+    <span class="live-label" id="live-label">LIVE</span>
+    <span id="last-updated">—</span>
+  </div>
+</header>
+
+<main>
+  <div id="loading-msg">데이터 로딩 중...</div>
+
+  <div id="dashboard-content">
+
+    <!-- Stat Cards -->
+    <div class="stat-grid">
+      <div class="stat-card">
+        <div class="stat-label">잔고</div>
+        <div class="stat-value" id="s-balance">—</div>
+        <div class="stat-sub" id="s-balance-sub">초기: —</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">수익률</div>
+        <div class="stat-value" id="s-return">—</div>
+        <div class="stat-sub" id="s-return-sub">총 거래: —</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">승률</div>
+        <div class="stat-value" id="s-winrate">—</div>
+        <div class="stat-sub" id="s-winrate-sub">— 승 — 패</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">총 손익R</div>
+        <div class="stat-value" id="s-totalr">—</div>
+        <div class="stat-sub">누적 리스크 배수</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">수익 팩터</div>
+        <div class="stat-value" id="s-pf">—</div>
+        <div class="stat-sub">Profit Factor</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">최대 낙폭</div>
+        <div class="stat-value" id="s-maxdd">—</div>
+        <div class="stat-sub">Max Drawdown (R)</div>
+      </div>
+    </div>
+
+    <!-- Equity Curve -->
+    <div class="chart-card">
+      <div class="section-title">누적 손익 (R)</div>
+      <div class="chart-wrap">
+        <canvas id="equity-chart"></canvas>
+      </div>
+    </div>
+
+    <!-- Two panels -->
+    <div class="panels">
+      <!-- Open Positions -->
+      <div class="panel-card">
+        <div class="section-title">오픈 포지션</div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Symbol</th>
+                <th>TF</th>
+                <th>Side</th>
+                <th>진입가</th>
+                <th>TP</th>
+                <th>SL</th>
+                <th>RR</th>
+                <th>P(TP)</th>
+              </tr>
+            </thead>
+            <tbody id="open-positions-tbody"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Recent Trades -->
+      <div class="panel-card">
+        <div class="section-title">최근 거래</div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Symbol</th>
+                <th>Side</th>
+                <th>진입가</th>
+                <th>청산가</th>
+                <th>결과</th>
+                <th>손익R</th>
+                <th>손익USDT</th>
+              </tr>
+            </thead>
+            <tbody id="recent-trades-tbody"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <footer>SMC Live Runner &bull; Dry-run mode</footer>
+
+  </div><!-- /#dashboard-content -->
+</main>
+
+<script>
+  // ── Helpers ────────────────────────────────────────────────
+  const $ = id => document.getElementById(id);
+
+  function fmt(n, decimals = 2) {
+    return Number(n).toLocaleString('en-US', {
+      minimumFractionDigits: decimals,
+      maximumFractionDigits: decimals,
+    });
+  }
+
+  function fmtUSD(n) { return '$' + fmt(n, 2); }
+  function fmtR(n)   { return (n >= 0 ? '+' : '') + fmt(n, 2) + 'R'; }
+  function fmtPct(n) { return (n >= 0 ? '+' : '') + fmt(n, 2) + '%'; }
+
+  function colorClass(n) { return n >= 0 ? 'positive' : 'negative'; }
+
+  function shortSym(sym) {
+    // "YFI/USDT:USDT" → "YFI/USDT"
+    return sym.split(':')[0];
+  }
+
+  function relTime(isoStr) {
+    try {
+      const diff = Math.round((Date.now() - new Date(isoStr).getTime()) / 1000);
+      if (diff < 60)  return `${diff}초 전`;
+      if (diff < 3600) return `${Math.floor(diff/60)}분 전`;
+      return `${Math.floor(diff/3600)}시간 전`;
+    } catch { return '—'; }
+  }
+
+  // ── Chart setup ────────────────────────────────────────────
+  let equityChart = null;
+
+  function initChart(data) {
+    const ctx = $('equity-chart').getContext('2d');
+    const labels = data.map((_, i) => i === 0 ? '시작' : `#${i}`);
+
+    equityChart = new Chart(ctx, {
+      type: 'line',
+      data: {
+        labels,
+        datasets: [{
+          label: '누적 R',
+          data,
+          borderColor: '#3b82f6',
+          backgroundColor: 'rgba(59, 130, 246, 0.10)',
+          borderWidth: 2,
+          pointRadius: data.length < 50 ? 3 : 0,
+          pointHoverRadius: 5,
+          pointBackgroundColor: '#3b82f6',
+          fill: true,
+          tension: 0.35,
+        }]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        animation: { duration: 400 },
+        plugins: {
+          legend: { display: false },
+          tooltip: {
+            backgroundColor: '#1a1d27',
+            borderColor: '#2a2d3a',
+            borderWidth: 1,
+            titleColor: '#64748b',
+            bodyColor: '#e2e8f0',
+            callbacks: {
+              label: ctx => ' ' + (ctx.raw >= 0 ? '+' : '') + ctx.raw.toFixed(2) + ' R',
+            }
+          }
+        },
+        scales: {
+          x: {
+            display: false,
+          },
+          y: {
+            grid:  { color: 'rgba(255,255,255,0.05)' },
+            ticks: { color: '#64748b', font: { size: 11 } },
+            border:{ color: 'transparent' },
+          }
+        }
+      }
+    });
+  }
+
+  function updateChart(curve) {
+    if (!equityChart) { initChart(curve); return; }
+    const labels = curve.map((_, i) => i === 0 ? '시작' : `#${i}`);
+    equityChart.data.labels = labels;
+    equityChart.data.datasets[0].data = curve;
+    equityChart.data.datasets[0].pointRadius = curve.length < 50 ? 3 : 0;
+    equityChart.update('none');
+  }
+
+  // ── Render open positions ──────────────────────────────────
+  function renderOpenPositions(positions) {
+    const tbody = $('open-positions-tbody');
+    if (!positions || positions.length === 0) {
+      tbody.innerHTML = '<tr class="empty-row"><td colspan="8">오픈 포지션 없음</td></tr>';
+      return;
+    }
+    tbody.innerHTML = positions.map(p => {
+      const sideClass = p.side === 'long' ? 'badge-long' : 'badge-short';
+      const probPct   = p.prob != null ? (p.prob * 100).toFixed(0) + '%' : '—';
+      return `<tr>
+        <td>${shortSym(p.symbol)}</td>
+        <td><span style="color:var(--muted)">${p.interval}m</span></td>
+        <td><span class="badge ${sideClass}">${p.side.toUpperCase()}</span></td>
+        <td>${fmt(p.entry_px, 4)}</td>
+        <td class="positive">${fmt(p.tp_px, 4)}</td>
+        <td class="negative">${fmt(p.sl_px, 4)}</td>
+        <td>${fmt(p.rr, 2)}</td>
+        <td>${probPct}</td>
+      </tr>`;
+    }).join('');
+  }
+
+  // ── Render recent trades ───────────────────────────────────
+  function renderRecentTrades(trades) {
+    const tbody = $('recent-trades-tbody');
+    if (!trades || trades.length === 0) {
+      tbody.innerHTML = '<tr class="empty-row"><td colspan="7">거래 내역 없음</td></tr>';
+      return;
+    }
+    const last10 = [...trades].reverse().slice(0, 10);
+    tbody.innerHTML = last10.map(t => {
+      const isTP      = t.outcome === 'TP';
+      const rowClass  = isTP ? 'tp-row' : 'sl-row';
+      const sideClass = t.side === 'long' ? 'badge-long' : 'badge-short';
+      const outcomeClass = isTP ? 'badge-tp' : 'badge-sl';
+      const pnlRClass    = t.pnl_r >= 0 ? 'positive' : 'negative';
+      const pnlUsdtClass = t.pnl_usdt >= 0 ? 'positive' : 'negative';
+      return `<tr class="${rowClass}">
+        <td>${shortSym(t.symbol)}</td>
+        <td><span class="badge ${sideClass}">${t.side.toUpperCase()}</span></td>
+        <td>${fmt(t.entry_px, 4)}</td>
+        <td>${fmt(t.exit_px, 4)}</td>
+        <td><span class="badge ${outcomeClass}">${t.outcome}</span></td>
+        <td class="${pnlRClass}">${fmtR(t.pnl_r)}</td>
+        <td class="${pnlUsdtClass}">${fmtUSD(t.pnl_usdt)}</td>
+      </tr>`;
+    }).join('');
+  }
+
+  // ── Render all stats ───────────────────────────────────────
+  function render(d) {
+    // Balance
+    const bal = $('s-balance');
+    bal.textContent = fmtUSD(d.balance);
+    bal.className = 'stat-value';
+    $('s-balance-sub').textContent = `초기: ${fmtUSD(d.initial_balance)}`;
+
+    // Return
+    const ret = $('s-return');
+    ret.textContent = fmtPct(d.return_pct);
+    ret.className   = 'stat-value ' + colorClass(d.return_pct);
+    $('s-return-sub').textContent = `총 거래: ${d.total_trades}건`;
+
+    // Win rate
+    const wr = $('s-winrate');
+    wr.textContent = fmt(d.win_rate, 1) + '%';
+    wr.className   = 'stat-value positive';
+    $('s-winrate-sub').textContent = `${d.wins}승 ${d.losses}패`;
+
+    // Total R
+    const tr = $('s-totalr');
+    tr.textContent = fmtR(d.total_r);
+    tr.className   = 'stat-value ' + colorClass(d.total_r);
+
+    // Profit factor
+    $('s-pf').textContent = fmt(d.profit_factor, 2);
+
+    // Max DD
+    const dd = $('s-maxdd');
+    dd.textContent = fmtR(d.max_dd_r);
+    dd.className   = 'stat-value negative';
+
+    // Chart
+    updateChart(d.equity_curve || []);
+
+    // Tables
+    renderOpenPositions(d.open_positions);
+    renderRecentTrades(d.recent_trades);
+
+    // Live dot freshness
+    const ageMs  = Date.now() - new Date(d.updated_at).getTime();
+    const fresh  = ageMs < 60_000;
+    const dot    = $('live-dot');
+    const label  = $('live-label');
+    dot.className   = 'live-dot'   + (fresh ? ' fresh' : '');
+    label.className = 'live-label' + (fresh ? ' fresh' : '');
+
+    const lu = $('last-updated');
+    lu.dataset.iso  = d.updated_at;
+    lu.textContent  = relTime(d.updated_at);
+  }
+
+  // ── Fetch & update ─────────────────────────────────────────
+  async function fetchData() {
+    try {
+      const res = await fetch('/live/account_status.json', { cache: 'no-store' });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json();
+
+      $('loading-msg').style.display = 'none';
+      $('dashboard-content').classList.add('visible');
+
+      render(data);
+    } catch (err) {
+      // If never loaded yet, keep loading message
+      if (!$('dashboard-content').classList.contains('visible')) {
+        $('loading-msg').textContent = '데이터 로딩 중...';
+      }
+      console.warn('[dashboard] fetch error:', err);
+    }
+  }
+
+  // ── Init ───────────────────────────────────────────────────
+  fetchData();
+  setInterval(fetchData, 30_000);
+
+  // Refresh relative timestamp label every 10 s without re-fetching.
+  // The ISO string is stored on the element as a data attribute during render().
+  setInterval(() => {
+    const lu  = $('last-updated');
+    const iso = lu.dataset.iso;
+    if (iso) lu.textContent = relTime(iso);
+  }, 10_000);
+</script>
+</body>
+</html>
