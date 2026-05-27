@@ -392,8 +392,24 @@ function parseRlTradesCsv(text: string): ViewerEvent[] {
   return out;
 }
 
+function calcPrecision(price: number): number {
+  if (price >= 10000) return 1;
+  if (price >= 1000)  return 2;
+  if (price >= 100)   return 3;
+  if (price >= 10)    return 4;
+  if (price >= 1)     return 5;
+  return 6;
+}
+
 function render() {
   if (!candles.length) return;
+
+  // 가격 범위에 맞게 소수점 자릿수 자동 설정
+  const lastClose = candles[candles.length - 1].close;
+  const precision = calcPrecision(lastClose);
+  const minMove   = Math.pow(10, -precision);
+  candlesSeries.applyOptions({ priceFormat: { type: 'price', precision, minMove } });
+
   candlesSeries.setData(candles);
   volSeries.setData(candles.map(c => ({ time: c.time, value: c.volume ?? 0 })));
 
