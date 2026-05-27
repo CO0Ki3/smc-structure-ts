@@ -370,6 +370,7 @@
                 <th>TP</th>
                 <th>SL</th>
                 <th>RR</th>
+                <th>레버리지</th>
                 <th>P(TP)</th>
               </tr>
             </thead>
@@ -504,12 +505,13 @@
   function renderOpenPositions(positions) {
     const tbody = $('open-positions-tbody');
     if (!positions || positions.length === 0) {
-      tbody.innerHTML = '<tr class="empty-row"><td colspan="8">오픈 포지션 없음</td></tr>';
+      tbody.innerHTML = '<tr class="empty-row"><td colspan="9">오픈 포지션 없음</td></tr>';
       return;
     }
     tbody.innerHTML = positions.map(p => {
       const sideClass = p.side === 'long' ? 'badge-long' : 'badge-short';
       const probPct   = p.prob != null ? (p.prob * 100).toFixed(0) + '%' : '—';
+      const lev       = p.leverage != null ? `×${p.leverage.toFixed(1)}` : '—';
       return `<tr>
         <td>${shortSym(p.symbol)}</td>
         <td><span style="color:var(--muted)">${p.interval}m</span></td>
@@ -518,6 +520,7 @@
         <td class="positive">${fmt(p.tp_px, 4)}</td>
         <td class="negative">${fmt(p.sl_px, 4)}</td>
         <td>${fmt(p.rr, 2)}</td>
+        <td style="color:var(--blue);font-weight:600">${lev}</td>
         <td>${probPct}</td>
       </tr>`;
     }).join('');
