@@ -417,8 +417,8 @@ function render() {
         style === 'dashed' ? LineStyle.Dashed :
         style === 'dotted' ? LineStyle.Dotted :
         LineStyle.Solid;
-      // extend to right edge when t0===t1 (point event → horizontal ray)
-      const t1 = e.t1 > e.t0 ? e.t1 : (lastCandleTime > e.t0 ? lastCandleTime : (e.t0 + 900) as UTCTimestamp);
+      // t0===t1 인 point 이벤트는 최소 1봉 너비만 표시 (우측 무한 확장 제거)
+      const t1 = e.t1 > e.t0 ? e.t1 : (e.t0 + 900) as UTCTimestamp;
 
       const s = chart.addSeries(LineSeries, { color: e.color, lineWidth: 1, lineStyle });
       s.setData([{ time: e.t0, value: e.price }, { time: t1, value: e.price }]);
@@ -428,8 +428,7 @@ function render() {
     if (e.type === 'RANGE_SEG') {
       const style = e.style ?? 'dotted';
       const lineStyle = style === 'solid' ? LineStyle.Solid : LineStyle.Dotted;
-      // extend FVG/single-point ranges to right edge
-      const t1 = e.t1 > e.t0 ? e.t1 : (lastCandleTime > e.t0 ? lastCandleTime : (e.t0 + 900) as UTCTimestamp);
+      const t1 = e.t1 > e.t0 ? e.t1 : (e.t0 + 900) as UTCTimestamp;
 
       const s1 = chart.addSeries(LineSeries, { color: e.color, lineWidth: 1, lineStyle });
       s1.setData([{ time: e.t0, value: e.high }, { time: t1, value: e.high }]);
