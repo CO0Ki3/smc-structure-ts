@@ -537,5 +537,13 @@ symbolSelect.addEventListener('change', () => {
   if (liveMode) refreshLive();
 });
 
-// 초기 심볼 목록 로드 후 라이브 모드 준비
-loadSymbolList().then(() => stopLiveMode());
+// 초기 심볼 목록 로드 — URL 해시에 심볼 키가 있으면 자동 라이브 모드
+loadSymbolList().then(() => {
+  const hash = location.hash.replace('#', '').trim();
+  if (hash && symbolSelect.querySelector(`option[value="${hash}"]`)) {
+    symbolSelect.value = hash;
+    startLiveMode();
+  } else {
+    stopLiveMode();
+  }
+});
