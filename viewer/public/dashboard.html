@@ -286,6 +286,81 @@
       font-style: italic;
     }
 
+    /* ── Login modal ───────────────────────────────────────── */
+    #login-overlay {
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,0.75);
+      backdrop-filter: blur(6px);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      z-index: 999;
+    }
+    #login-overlay.hidden { display: none; }
+
+    .login-box {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 36px 40px;
+      width: 340px;
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+
+    .login-box h2 {
+      font-size: 18px;
+      font-weight: 700;
+      letter-spacing: -0.3px;
+    }
+
+    .login-box input {
+      width: 100%;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 10px 14px;
+      color: var(--text);
+      font-size: 14px;
+      outline: none;
+      transition: border-color 0.15s;
+    }
+    .login-box input:focus { border-color: var(--blue); }
+    .login-box input.error { border-color: var(--red); }
+
+    .login-btn {
+      width: 100%;
+      background: var(--blue);
+      color: #fff;
+      border: none;
+      border-radius: 8px;
+      padding: 10px;
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: opacity 0.15s;
+    }
+    .login-btn:hover { opacity: 0.85; }
+
+    .login-error {
+      font-size: 12px;
+      color: var(--red);
+      min-height: 16px;
+    }
+
+    .logout-btn {
+      font-size: 12px;
+      color: var(--muted);
+      background: none;
+      border: none;
+      cursor: pointer;
+      padding: 0;
+      text-decoration: underline;
+    }
+    .logout-btn:hover { color: var(--text); }
+
     /* ── Footer ────────────────────────────────────────────── */
     footer {
       text-align: center;
@@ -298,12 +373,23 @@
 </head>
 <body>
 
+<!-- Login modal -->
+<div id="login-overlay">
+  <div class="login-box">
+    <h2>🔒 Dashboard</h2>
+    <input type="password" id="pw-input" placeholder="비밀번호" autocomplete="current-password" />
+    <div class="login-error" id="login-error"></div>
+    <button class="login-btn" id="login-btn">로그인</button>
+  </div>
+</div>
+
 <header>
   <div class="header-left">
     <a class="back-link" href="/">&#8592; Viewer</a>
     <h1>SMC Paper Trading Dashboard</h1>
   </div>
   <div class="header-right">
+    <button class="logout-btn" id="logout-btn" style="display:none">로그아웃</button>
     <span class="live-dot" id="live-dot"></span>
     <span class="live-label" id="live-label">LIVE</span>
     <span id="last-updated">—</span>
@@ -410,6 +496,31 @@
 </main>
 
 <script>
+  // ── Auth ───────────────────────────────────────────────────
+  const PASS = __DASHBOARD_PASSWORD__;
+  const AUTH_KEY = 'smc_auth';
+
+  function isAuthed() { return sessionStorage.getItem(AUTH_KEY) === '1'; }
+
+  function tryLogin() {
+    const pw = $('pw-input').value;
+    if (pw === PASS) {
+      sessionStorage.setItem(AUTH_KEY, '1');
+      $('login-overlay').classList.add('hidden');
+      $('logout-btn').style.display = '';
+      fetchData();
+    } else {
+      $('pw-input').classList.add('error');
+      $('login-error').textContent = '비밀번호가 틀렸습니다.';
+      setTimeout(() => $('pw-input').classList.remove('error'), 1000);
+    }
+  }
+
+  function logout() {
+    sessionStorage.removeItem(AUTH_KEY);
+    location.reload();
+  }
+
   // ── Helpers ────────────────────────────────────────────────
   const $ = id => document.getElementById(id);
 
@@ -427,16 +538,20 @@
   function colorClass(n) { return n >= 0 ? 'positive' : 'negative'; }
 
   function shortSym(sym) {
-    // "YFI/USDT:USDT" → "YFI/USDT"
     return sym.split(':')[0];
   }
 
+  function displaySym(sym) {
+    if (!isAuthed()) return '***/USDT';
+    return shortSym(sym);
+  }
+
   function viewerKey(sym, interval) {
-    // "BTC/USDT:USDT", "15" → "BTC_USDT_USDT_15"
     return sym.replace(/\//g, '_').replace(/:/g, '_') + '_' + interval;
   }
 
   function goToViewer(sym, interval) {
+    if (!isAuthed()) return;
     window.location.href = '/#' + viewerKey(sym, interval);
   }
 
@@ -524,9 +639,10 @@
       const sideClass = p.side === 'long' ? 'badge-long' : 'badge-short';
       const probPct   = p.prob != null ? (p.prob * 100).toFixed(0) + '%' : '—';
       const lev       = p.leverage != null ? `×${p.leverage.toFixed(1)}` : '—';
-      const key       = viewerKey(p.symbol, p.interval);
-      return `<tr class="clickable" onclick="goToViewer('${p.symbol}','${p.interval}')" title="뷰어에서 보기">
-        <td>${shortSym(p.symbol)}</td>
+      const authed    = isAuthed();
+      const rowAttrs  = authed ? `class="clickable" onclick="goToViewer('${p.symbol}','${p.interval}')" title="뷰어에서 보기"` : '';
+      return `<tr ${rowAttrs}>
+        <td>${displaySym(p.symbol)}</td>
         <td><span style="color:var(--muted)">${p.interval}m</span></td>
         <td><span class="badge ${sideClass}">${p.side.toUpperCase()}</span></td>
         <td>${fmt(p.entry_px, 4)}</td>
@@ -554,8 +670,10 @@
       const outcomeClass = isTP ? 'badge-tp' : 'badge-sl';
       const pnlRClass    = t.pnl_r >= 0 ? 'positive' : 'negative';
       const pnlUsdtClass = t.pnl_usdt >= 0 ? 'positive' : 'negative';
-      return `<tr class="${rowClass} clickable" onclick="goToViewer('${t.symbol}','${t.interval}')" title="뷰어에서 보기">
-        <td>${shortSym(t.symbol)}</td>
+      const authed2   = isAuthed();
+      const rowAttrs2 = authed2 ? `onclick="goToViewer('${t.symbol}','${t.interval}')" title="뷰어에서 보기" class="${rowClass} clickable"` : `class="${rowClass}"`;
+      return `<tr ${rowAttrs2}>
+        <td>${displaySym(t.symbol)}</td>
         <td><span class="badge ${sideClass}">${t.side.toUpperCase()}</span></td>
         <td>${fmt(t.entry_px, 4)}</td>
         <td>${fmt(t.exit_px, 4)}</td>
@@ -640,8 +758,17 @@
   }
 
   // ── Init ───────────────────────────────────────────────────
+  if (isAuthed()) {
+    $('login-overlay').classList.add('hidden');
+    $('logout-btn').style.display = '';
+  }
+  // 로그인 여부와 무관하게 통계는 표시 (비로그인은 심볼만 마스킹)
   fetchData();
   setInterval(fetchData, 30_000);
+
+  $('login-btn').addEventListener('click', tryLogin);
+  $('pw-input').addEventListener('keydown', e => { if (e.key === 'Enter') tryLogin(); });
+  $('logout-btn').addEventListener('click', logout);
 
   // Refresh relative timestamp label every 10 s without re-fetching.
   // The ISO string is stored on the element as a data attribute during render().
