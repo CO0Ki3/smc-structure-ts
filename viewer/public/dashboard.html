@@ -286,69 +286,47 @@
       font-style: italic;
     }
 
-    /* ── Login modal ───────────────────────────────────────── */
-    #login-overlay {
-      position: fixed;
-      inset: 0;
-      background: rgba(0,0,0,0.75);
-      backdrop-filter: blur(6px);
-      display: flex;
+    /* ── Inline login (header) ─────────────────────────────── */
+    #inline-login {
+      display: none;
       align-items: center;
-      justify-content: center;
-      z-index: 999;
+      gap: 6px;
     }
-    #login-overlay.hidden { display: none; }
+    #inline-login.visible { display: flex; }
 
-    .login-box {
-      background: var(--card);
-      border: 1px solid var(--border);
-      border-radius: 16px;
-      padding: 36px 40px;
-      width: 340px;
-      display: flex;
-      flex-direction: column;
-      gap: 16px;
-    }
-
-    .login-box h2 {
-      font-size: 18px;
-      font-weight: 700;
-      letter-spacing: -0.3px;
-    }
-
-    .login-box input {
-      width: 100%;
+    #inline-pw {
       background: var(--bg);
       border: 1px solid var(--border);
-      border-radius: 8px;
-      padding: 10px 14px;
+      border-radius: 7px;
+      padding: 5px 10px;
       color: var(--text);
-      font-size: 14px;
+      font-size: 13px;
       outline: none;
+      width: 150px;
       transition: border-color 0.15s;
     }
-    .login-box input:focus { border-color: var(--blue); }
-    .login-box input.error { border-color: var(--red); }
+    #inline-pw:focus { border-color: var(--blue); }
+    #inline-pw.error { border-color: var(--red); animation: shake 0.3s; }
 
-    .login-btn {
-      width: 100%;
+    @keyframes shake {
+      0%,100% { transform: translateX(0); }
+      25%      { transform: translateX(-4px); }
+      75%      { transform: translateX(4px); }
+    }
+
+    #inline-login-btn {
       background: var(--blue);
       color: #fff;
       border: none;
-      border-radius: 8px;
-      padding: 10px;
-      font-size: 14px;
+      border-radius: 7px;
+      padding: 5px 12px;
+      font-size: 13px;
       font-weight: 600;
       cursor: pointer;
+      white-space: nowrap;
       transition: opacity 0.15s;
     }
-    .login-btn:hover { opacity: 0.85; }
-
-    .login-error {
-      font-size: 12px;
-      color: var(--red);
-      min-height: 16px;
-    }
+    #inline-login-btn:hover { opacity: 0.85; }
 
     .logout-btn {
       font-size: 12px;
@@ -360,6 +338,62 @@
       text-decoration: underline;
     }
     .logout-btn:hover { color: var(--text); }
+
+    /* ── Signal Log ─────────────────────────────────────────── */
+    .signal-card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 20px 24px;
+      margin: 0 24px;
+    }
+
+    .signal-card .section-title {
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      margin-bottom: 12px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .signal-card .section-title span {
+      font-size: 11px;
+      color: var(--muted);
+      font-weight: 400;
+      text-transform: none;
+      letter-spacing: 0;
+    }
+
+    .signal-filter {
+      display: flex;
+      gap: 8px;
+      margin-bottom: 10px;
+      flex-wrap: wrap;
+    }
+
+    .signal-filter button {
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      color: var(--muted);
+      font-size: 12px;
+      padding: 3px 10px;
+      cursor: pointer;
+      transition: all 0.15s;
+    }
+    .signal-filter button.active {
+      border-color: var(--blue);
+      color: var(--blue);
+      background: rgba(59,130,246,0.08);
+    }
+
+    #signal-tbody tr.sig-pass td:last-child { color: var(--green); font-weight: 600; }
+    #signal-tbody tr.sig-skip td:last-child { color: var(--muted); }
+    #signal-tbody tr.sig-pass { background: rgba(34,197,94,0.03); }
 
     /* ── Footer ────────────────────────────────────────────── */
     footer {
@@ -373,20 +407,14 @@
 </head>
 <body>
 
-<!-- Login modal -->
-<div id="login-overlay">
-  <div class="login-box">
-    <h2>🔒 Dashboard</h2>
-    <input type="password" id="pw-input" placeholder="비밀번호" autocomplete="current-password" />
-    <div class="login-error" id="login-error"></div>
-    <button class="login-btn" id="login-btn">로그인</button>
-  </div>
-</div>
-
 <header>
   <div class="header-left">
     <a class="back-link" href="/">&#8592; Viewer</a>
     <h1>SMC Paper Trading Dashboard</h1>
+    <div id="inline-login">
+      <input type="password" id="inline-pw" placeholder="비밀번호" autocomplete="current-password" />
+      <button id="inline-login-btn">확인</button>
+    </div>
   </div>
   <div class="header-right">
     <button class="logout-btn" id="logout-btn" style="display:none">로그아웃</button>
@@ -403,7 +431,7 @@
 
     <!-- Stat Cards -->
     <div class="stat-grid">
-      <div class="stat-card">
+      <div class="stat-card" id="balance-card" style="cursor:default;user-select:none">
         <div class="stat-label">잔고</div>
         <div class="stat-value" id="s-balance">—</div>
         <div class="stat-sub" id="s-balance-sub">초기: —</div>
@@ -490,6 +518,42 @@
       </div>
     </div>
 
+    <!-- Signal Log -->
+    <div class="signal-card">
+      <div class="section-title">
+        감지된 신호 로그
+        <span id="signal-count"></span>
+      </div>
+      <div class="signal-filter">
+        <button class="active" data-filter="all" onclick="setSignalFilter('all',this)">전체</button>
+        <button data-filter="PASS" onclick="setSignalFilter('PASS',this)">PASS만</button>
+        <button data-filter="skip" onclick="setSignalFilter('skip',this)">skip만</button>
+        <button data-filter="long" onclick="setSignalFilter('long',this)">롱</button>
+        <button data-filter="short" onclick="setSignalFilter('short',this)">숏</button>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>시간 (KST)</th>
+              <th>Symbol</th>
+              <th>TF</th>
+              <th>Side</th>
+              <th>트리거</th>
+              <th>진입가</th>
+              <th>RR</th>
+              <th>P(TP)</th>
+              <th>임계값</th>
+              <th>결과</th>
+            </tr>
+          </thead>
+          <tbody id="signal-tbody">
+            <tr class="empty-row"><td colspan="10">로딩 중...</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
     <footer>SMC Live Runner &bull; Dry-run mode</footer>
 
   </div><!-- /#dashboard-content -->
@@ -502,17 +566,19 @@
 
   function isAuthed() { return sessionStorage.getItem(AUTH_KEY) === '1'; }
 
-  function tryLogin() {
-    const pw = $('pw-input').value;
+  function tryInlineLogin() {
+    const pw = $('inline-pw').value;
     if (pw === PASS) {
       sessionStorage.setItem(AUTH_KEY, '1');
-      $('login-overlay').classList.add('hidden');
+      $('inline-login').classList.remove('visible');
+      $('inline-pw').value = '';
       $('logout-btn').style.display = '';
       fetchData();
     } else {
-      $('pw-input').classList.add('error');
-      $('login-error').textContent = '비밀번호가 틀렸습니다.';
-      setTimeout(() => $('pw-input').classList.remove('error'), 1000);
+      const inp = $('inline-pw');
+      inp.classList.add('error');
+      inp.value = '';
+      setTimeout(() => inp.classList.remove('error'), 600);
     }
   }
 
@@ -520,6 +586,10 @@
     sessionStorage.removeItem(AUTH_KEY);
     location.reload();
   }
+
+  // ── Balance card: 5-click to reveal login ─────────────────
+  let _balanceClicks = 0;
+  let _balanceTimer  = null;
 
   // ── Helpers ────────────────────────────────────────────────
   const $ = id => document.getElementById(id);
@@ -550,8 +620,8 @@
     return sym.replace(/\//g, '_').replace(/:/g, '_') + '_' + interval;
   }
 
-  function goToViewer(sym, interval) {
-    if (!isAuthed()) return;
+  function goToViewer(sym, interval, requireAuth = false) {
+    if (requireAuth && !isAuthed()) return;
     window.location.href = '/#' + viewerKey(sym, interval);
   }
 
@@ -567,14 +637,26 @@
   // ── Chart setup ────────────────────────────────────────────
   let equityChart = null;
 
-  function initChart(data) {
+  function fmtChartLabel(ts) {
+    if (!ts || ts === '시작') return ts || '시작';
+    const d = new Date(ts);
+    if (isNaN(d)) return ts;
+    const mm = String(d.getMonth() + 1).padStart(2, '0');
+    const dd = String(d.getDate()).padStart(2, '0');
+    const hh = String(d.getHours()).padStart(2, '0');
+    const mi = String(d.getMinutes()).padStart(2, '0');
+    return `${mm}/${dd} ${hh}:${mi}`;
+  }
+
+  function initChart(data, labels) {
     const ctx = $('equity-chart').getContext('2d');
-    const labels = data.map((_, i) => i === 0 ? '시작' : `#${i}`);
+    const xLabels = labels ? labels.map(fmtChartLabel)
+                           : data.map((_, i) => i === 0 ? '시작' : `#${i}`);
 
     equityChart = new Chart(ctx, {
       type: 'line',
       data: {
-        labels,
+        labels: xLabels,
         datasets: [{
           label: '누적 R',
           data,
@@ -601,13 +683,23 @@
             titleColor: '#64748b',
             bodyColor: '#e2e8f0',
             callbacks: {
+              title: items => items[0].label,
               label: ctx => ' ' + (ctx.raw >= 0 ? '+' : '') + ctx.raw.toFixed(2) + ' R',
             }
           }
         },
         scales: {
           x: {
-            display: false,
+            display: true,
+            ticks: {
+              color: '#64748b',
+              font: { size: 10 },
+              maxRotation: 0,
+              autoSkip: true,
+              maxTicksLimit: 8,
+            },
+            grid:  { display: false },
+            border:{ color: 'transparent' },
           },
           y: {
             grid:  { color: 'rgba(255,255,255,0.05)' },
@@ -619,10 +711,11 @@
     });
   }
 
-  function updateChart(curve) {
-    if (!equityChart) { initChart(curve); return; }
-    const labels = curve.map((_, i) => i === 0 ? '시작' : `#${i}`);
-    equityChart.data.labels = labels;
+  function updateChart(curve, labels) {
+    if (!equityChart) { initChart(curve, labels); return; }
+    const xLabels = labels ? labels.map(fmtChartLabel)
+                           : curve.map((_, i) => i === 0 ? '시작' : `#${i}`);
+    equityChart.data.labels = xLabels;
     equityChart.data.datasets[0].data = curve;
     equityChart.data.datasets[0].pointRadius = curve.length < 50 ? 3 : 0;
     equityChart.update('none');
@@ -640,7 +733,7 @@
       const probPct   = p.prob != null ? (p.prob * 100).toFixed(0) + '%' : '—';
       const lev       = p.leverage != null ? `×${p.leverage.toFixed(1)}` : '—';
       const authed    = isAuthed();
-      const rowAttrs  = authed ? `class="clickable" onclick="goToViewer('${p.symbol}','${p.interval}')" title="뷰어에서 보기"` : '';
+      const rowAttrs  = authed ? `class="clickable" onclick="goToViewer('${p.symbol}','${p.interval}',true)" title="뷰어에서 보기"` : '';
       return `<tr ${rowAttrs}>
         <td>${displaySym(p.symbol)}</td>
         <td><span style="color:var(--muted)">${p.interval}m</span></td>
@@ -670,10 +763,9 @@
       const outcomeClass = isTP ? 'badge-tp' : 'badge-sl';
       const pnlRClass    = t.pnl_r >= 0 ? 'positive' : 'negative';
       const pnlUsdtClass = t.pnl_usdt >= 0 ? 'positive' : 'negative';
-      const authed2   = isAuthed();
-      const rowAttrs2 = authed2 ? `onclick="goToViewer('${t.symbol}','${t.interval}')" title="뷰어에서 보기" class="${rowClass} clickable"` : `class="${rowClass}"`;
+      const rowAttrs2 = `onclick="goToViewer('${t.symbol}','${t.interval}')" title="뷰어에서 보기" class="${rowClass} clickable"`;
       return `<tr ${rowAttrs2}>
-        <td>${displaySym(t.symbol)}</td>
+        <td>${shortSym(t.symbol)}</td>
         <td><span class="badge ${sideClass}">${t.side.toUpperCase()}</span></td>
         <td>${fmt(t.entry_px, 4)}</td>
         <td>${fmt(t.exit_px, 4)}</td>
@@ -718,7 +810,7 @@
     dd.className   = 'stat-value negative';
 
     // Chart
-    updateChart(d.equity_curve || []);
+    updateChart(d.equity_curve || [], d.equity_labels || null);
 
     // Tables
     renderOpenPositions(d.open_positions);
@@ -759,16 +851,28 @@
 
   // ── Init ───────────────────────────────────────────────────
   if (isAuthed()) {
-    $('login-overlay').classList.add('hidden');
     $('logout-btn').style.display = '';
   }
   // 로그인 여부와 무관하게 통계는 표시 (비로그인은 심볼만 마스킹)
   fetchData();
   setInterval(fetchData, 30_000);
 
-  $('login-btn').addEventListener('click', tryLogin);
-  $('pw-input').addEventListener('keydown', e => { if (e.key === 'Enter') tryLogin(); });
+  $('inline-login-btn').addEventListener('click', tryInlineLogin);
+  $('inline-pw').addEventListener('keydown', e => { if (e.key === 'Enter') tryInlineLogin(); });
   $('logout-btn').addEventListener('click', logout);
+
+  $('balance-card').addEventListener('click', () => {
+    if (isAuthed()) return;
+    clearTimeout(_balanceTimer);
+    _balanceClicks++;
+    if (_balanceClicks >= 5) {
+      _balanceClicks = 0;
+      $('inline-login').classList.add('visible');
+      setTimeout(() => $('inline-pw').focus(), 50);
+    } else {
+      _balanceTimer = setTimeout(() => { _balanceClicks = 0; }, 1500);
+    }
+  });
 
   // Refresh relative timestamp label every 10 s without re-fetching.
   // The ISO string is stored on the element as a data attribute during render().
@@ -777,6 +881,94 @@
     const iso = lu.dataset.iso;
     if (iso) lu.textContent = relTime(iso);
   }, 10_000);
+
+  // ── Signal Log ─────────────────────────────────────────────
+  let _allSignals = [];
+  let _signalFilter = 'all';
+
+  function parseCSV(text) {
+    const lines = text.trim().split('\n');
+    if (lines.length < 2) return [];
+    const headers = lines[0].split(',');
+    return lines.slice(1).map(line => {
+      const vals = line.split(',');
+      const obj = {};
+      headers.forEach((h, i) => obj[h.trim()] = (vals[i] || '').trim());
+      return obj;
+    });
+  }
+
+  function fmtSignalTime(iso) {
+    if (!iso) return '—';
+    const d = new Date(iso);
+    if (isNaN(d)) return iso.slice(0,16);
+    const kst = new Date(d.getTime() + 9 * 60 * 60 * 1000);
+    const mm = String(kst.getUTCMonth()+1).padStart(2,'0');
+    const dd = String(kst.getUTCDate()).padStart(2,'0');
+    const hh = String(kst.getUTCHours()).padStart(2,'0');
+    const mi = String(kst.getUTCMinutes()).padStart(2,'0');
+    return `${mm}/${dd} ${hh}:${mi}`;
+  }
+
+  function renderSignals() {
+    const tbody = $('signal-tbody');
+    let rows = [..._allSignals].sort((a, b) => new Date(b.detected_at) - new Date(a.detected_at));
+
+    if (_signalFilter === 'PASS') rows = rows.filter(r => r.result === 'PASS');
+    else if (_signalFilter === 'skip') rows = rows.filter(r => r.result !== 'PASS');
+    else if (_signalFilter === 'long') rows = rows.filter(r => r.side === 'long');
+    else if (_signalFilter === 'short') rows = rows.filter(r => r.side === 'short');
+
+    const display = rows.slice(0, 100);
+    $('signal-count').textContent = `최근 ${display.length}건 / 전체 ${_allSignals.length}건`;
+
+    if (display.length === 0) {
+      tbody.innerHTML = '<tr class="empty-row"><td colspan="10">신호 없음</td></tr>';
+      return;
+    }
+
+    tbody.innerHTML = display.map(r => {
+      const isPass = r.result === 'PASS';
+      const rowClass = isPass ? 'sig-pass' : 'sig-skip';
+      const sideClass = r.side === 'long' ? 'badge-long' : 'badge-short';
+      const trigger = (r.trigger || '').replace('OB_MITIGATED_', 'OB_MIT_').replace('FVG_FILLED_', 'FVG_').replace('_Bull','↑').replace('_Bear','↓');
+      const sym = isAuthed() ? shortSym(r.symbol) : '***';
+      return `<tr class="${rowClass}">
+        <td style="color:var(--muted);font-size:12px">${fmtSignalTime(r.detected_at)}</td>
+        <td>${sym}</td>
+        <td style="color:var(--muted)">${r.interval}m</td>
+        <td><span class="badge ${sideClass}">${(r.side||'').toUpperCase()}</span></td>
+        <td style="font-size:12px;color:var(--muted)">${trigger}</td>
+        <td>${Number(r.entry_px||0).toFixed(4)}</td>
+        <td>${Number(r.rr||0).toFixed(2)}</td>
+        <td style="font-weight:600">${(Number(r.prob||0)*100).toFixed(1)}%</td>
+        <td style="color:var(--muted)">${(Number(r.threshold||0)*100).toFixed(0)}%</td>
+        <td>${isPass ? 'PASS ✓' : 'skip'}</td>
+      </tr>`;
+    }).join('');
+  }
+
+  function setSignalFilter(filter, btn) {
+    _signalFilter = filter;
+    document.querySelectorAll('.signal-filter button').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    renderSignals();
+  }
+
+  async function fetchSignals() {
+    try {
+      const res = await fetch('/live/all_signals.csv', { cache: 'no-store' });
+      if (!res.ok) return;
+      const text = await res.text();
+      _allSignals = parseCSV(text);
+      renderSignals();
+    } catch(e) {
+      console.warn('[signals] fetch error:', e);
+    }
+  }
+
+  fetchSignals();
+  setInterval(fetchSignals, 30_000);
 </script>
 </body>
 </html>

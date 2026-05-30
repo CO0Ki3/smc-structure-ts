@@ -29,7 +29,11 @@ function writeCsv(filePath: string, rows: DatasetRow[]) {
 }
 
 function writeJsonl(filePath: string, rows: DatasetRow[]) {
-  fs.writeFileSync(filePath, rows.map(r => JSON.stringify(r)).join("\n") + (rows.length ? "\n" : ""), "utf-8");
+  const fd = fs.openSync(filePath, "w");
+  for (const r of rows) {
+    fs.writeSync(fd, JSON.stringify(r) + "\n");
+  }
+  fs.closeSync(fd);
 }
 
 function readEventsJsonl(filePath: string): any[] {
