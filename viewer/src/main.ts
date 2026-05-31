@@ -32,7 +32,7 @@ function setStatus(msg: string){ statusEl.textContent = msg; }
 
 async function loadSymbolList() {
   try {
-    const res = await fetch('/live/symbols.json', { cache: 'no-store' });
+    const res = await fetch(`/${VIEW_DIR}/symbols.json`, { cache: 'no-store' });
     if (!res.ok) return;
     const symbols: string[] = await res.json();
     symbolSelect.innerHTML = symbols.map(s =>
@@ -66,13 +66,15 @@ let rlTradeEvents: ViewerEvent[] = [];
 let liveMode = false;
 let liveTimer: number | null = null;
 
+const VIEW_DIR = (new URLSearchParams(location.search).get('dir') || 'live');
+
 function liveUrls() {
   const sym = symbolSelect.value || 'BTC_USDT_USDT_15';
   return {
-    csv:     `/live/${sym}_bars.csv`,
-    events:  `/live/${sym}_events.jsonl`,
-    trades:  `/live/${sym}_trades.jsonl`,
-    signals: `/live/signals.jsonl`,
+    csv:     `/${VIEW_DIR}/${sym}_bars.csv`,
+    events:  `/${VIEW_DIR}/${sym}_events.jsonl`,
+    trades:  `/${VIEW_DIR}/${sym}_trades.jsonl`,
+    signals: `/${VIEW_DIR}/signals.jsonl`,
   };
 }
 
