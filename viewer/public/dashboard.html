@@ -566,6 +566,7 @@
 </main>
 
 <script>
+  const _DIR = (new URLSearchParams(location.search).get('dir') || 'live');
   // ── Auth ───────────────────────────────────────────────────
   const PASS = __DASHBOARD_PASSWORD__;
   const AUTH_KEY = 'smc_auth';
@@ -847,7 +848,7 @@
   // ── Fetch & update ─────────────────────────────────────────
   async function fetchData() {
     try {
-      const res = await fetch('/live/account_status.json', { cache: 'no-store' });
+      const res = await fetch(`/${_DIR}/account_status.json`, { cache: 'no-store' });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json();
 
@@ -972,7 +973,7 @@
 
   async function fetchSignals() {
     try {
-      const res = await fetch('/live/all_signals.csv', { cache: 'no-store' });
+      const res = await fetch(`/${_DIR}/all_signals.csv`, { cache: 'no-store' });
       if (!res.ok) return;
       const text = await res.text();
       _allSignals = parseCSV(text);
