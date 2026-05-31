@@ -425,6 +425,17 @@ function render() {
 
   const lastCandleTime: UTCTimestamp = candles.length ? candles[candles.length - 1].time : 0 as UTCTimestamp;
 
+  // 세그먼트(레벨선/박스)가 차트를 좌우로 가로지르지 않게 우측 길이를 N봉으로 제한.
+  // barSec: 실제 봉 간격(초). SEG_MAX_BARS봉까지만 그린다.
+  const barSec = candles.length >= 2
+    ? (candles[candles.length - 1].time as number) - (candles[candles.length - 2].time as number)
+    : 900;
+  const SEG_MAX_BARS = 6;
+  const segEnd = (t0: number, t1: number): UTCTimestamp => {
+    const base = t1 > t0 ? t1 : t0 + barSec;      // point 이벤트는 최소 1봉
+    return Math.min(base, t0 + SEG_MAX_BARS * barSec) as UTCTimestamp;
+  };
+
   clearSegments();
   for (const e of allEvents) {
     if (e.type === 'HSEG') {
@@ -433,8 +444,7 @@ function render() {
         style === 'dashed' ? LineStyle.Dashed :
         style === 'dotted' ? LineStyle.Dotted :
         LineStyle.Solid;
-      // t0===t1 인 point 이벤트는 최소 1봉 너비만 표시 (우측 무한 확장 제거)
-      const t1 = e.t1 > e.t0 ? e.t1 : (e.t0 + 900) as UTCTimestamp;
+      const t1 = segEnd(e.t0, e.t1);
 
       const s = chart.addSeries(LineSeries, { color: e.color, lineWidth: 1, lineStyle });
       s.setData([{ time: e.t0, value: e.price }, { time: t1, value: e.price }]);
@@ -444,7 +454,7 @@ function render() {
     if (e.type === 'RANGE_SEG') {
       const style = e.style ?? 'dotted';
       const lineStyle = style === 'solid' ? LineStyle.Solid : LineStyle.Dotted;
-      const t1 = e.t1 > e.t0 ? e.t1 : (e.t0 + 900) as UTCTimestamp;
+      const t1 = segEnd(e.t0, e.t1);
 
       const s1 = chart.addSeries(LineSeries, { color: e.color, lineWidth: 1, lineStyle });
       s1.setData([{ time: e.t0, value: e.high }, { time: t1, value: e.high }]);
