@@ -452,9 +452,9 @@
         <div class="stat-sub" id="s-margin-sub">-</div>
       </div>
       <div class="stat-card">
-        <div class="stat-label">총 손익R</div>
+        <div class="stat-label">총 손익</div>
         <div class="stat-value" id="s-totalr">—</div>
-        <div class="stat-sub">누적 리스크 배수</div>
+        <div class="stat-sub">누적 실현손익 (USDT)</div>
       </div>
       <div class="stat-card">
         <div class="stat-label">수익 팩터</div>
@@ -812,9 +812,9 @@
     const _mpct = d.balance ? (_mg / d.balance * 100) : 0;
     if ($('s-margin')) { $('s-margin').textContent = fmtUSD(_mg); $('s-margin').className = 'stat-value ' + (_mpct >= 80 ? 'negative' : ''); $('s-margin-sub').textContent = _mpct.toFixed(0) + '% of 잔고'; }
 
-    // Total R
+    // Total PnL (USDT)
     const tr = $('s-totalr');
-    tr.textContent = fmtR(d.total_r);
+    tr.textContent = (d.total_r >= 0 ? '+' : '') + fmtUSD(d.total_r);
     tr.className   = 'stat-value ' + colorClass(d.total_r);
 
     // Profit factor
