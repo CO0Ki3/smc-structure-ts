@@ -3,3 +3,5 @@ dist/
 dataset_out/*
 viewer/public/live/*
 !viewer/public/live/.gitkeep
+viewer/public/live2/*
+!viewer/public/live2/.gitkeep
